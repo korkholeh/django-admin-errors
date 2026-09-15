@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+from functools import partial
 from typing import Any
 
 from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.db.models.functions import Greatest
 
+from admin_errors import signals
 from admin_errors.conf import settings as conf
 from admin_errors.models import Event, Issue, IssueDailyCount
 
@@ -47,8 +49,9 @@ def store_batch(batch: dict[str, Aggregate], *, using: str | None = None) -> Non
 def _store_one(fingerprint: str, aggregate: Aggregate, alias: str) -> None:
     with transaction.atomic(using=alias):
         row = _select_issue(fingerprint, alias)
+        created = False
         if row is None:
-            row = _create_issue(fingerprint, aggregate, alias)
+            row, created = _create_issue(fingerprint, aggregate, alias)
         issue_id = row["id"]
 
         if row["status"] == Issue.Status.IGNORED:
@@ -56,13 +59,24 @@ def _store_one(fingerprint: str, aggregate: Aggregate, alias: str) -> None:
             _update_daily_counts(issue_id, aggregate, alias)
             return
 
-        reopen = row["status"] == Issue.Status.RESOLVED
+        reopen = (not created) and row["status"] == Issue.Status.RESOLVED
         _update_counters(issue_id, aggregate, alias, status=row["status"], reopen=reopen)
 
+        event: Event | None = None
         if aggregate.samples:
-            _store_events(issue_id, aggregate, alias)
+            created_events = _store_events(issue_id, aggregate, alias)
+            event = created_events[-1] if created_events else None
 
         _update_daily_counts(issue_id, aggregate, alias)
+
+        if created:
+            transaction.on_commit(
+                partial(_fire, signals.issue_created, issue_id, event, alias), using=alias
+            )
+        elif reopen:
+            transaction.on_commit(
+                partial(_fire, signals.issue_regressed, issue_id, event, alias), using=alias
+            )
 
 
 def _select_issue(fingerprint: str, alias: str) -> dict[str, Any] | None:
@@ -74,7 +88,9 @@ def _select_issue(fingerprint: str, alias: str) -> dict[str, Any] | None:
     )
 
 
-def _create_issue(fingerprint: str, aggregate: Aggregate, alias: str) -> dict[str, Any]:
+def _create_issue(
+    fingerprint: str, aggregate: Aggregate, alias: str
+) -> tuple[dict[str, Any], bool]:
     meta = aggregate.meta
     last_event = aggregate.samples[-1][1] if aggregate.samples else None
     try:
@@ -98,13 +114,13 @@ def _create_issue(fingerprint: str, aggregate: Aggregate, alias: str) -> dict[st
         row = _select_issue(fingerprint, alias)
         if row is None:
             raise
-        return row
+        return row, False
     return {
         "id": issue.id,
         "status": issue.status,
         "resolved_at": issue.resolved_at,
         "notified_at": issue.notified_at,
-    }
+    }, True
 
 
 def _update_counters(
@@ -129,9 +145,12 @@ def _update_counters(
     Issue.objects.using(alias).filter(pk=issue_id).update(**fields)
 
 
-def _store_events(issue_id: int, aggregate: Aggregate, alias: str) -> None:
-    Event.objects.using(alias).bulk_create(
-        Event(issue_id=issue_id, timestamp=ts, payload=payload) for ts, payload in aggregate.samples
+def _store_events(issue_id: int, aggregate: Aggregate, alias: str) -> list[Event]:
+    created = list(
+        Event.objects.using(alias).bulk_create(
+            Event(issue_id=issue_id, timestamp=ts, payload=payload)
+            for ts, payload in aggregate.samples
+        )
     )
     overflow_ids = list(
         Event.objects.using(alias)
@@ -141,6 +160,16 @@ def _store_events(issue_id: int, aggregate: Aggregate, alias: str) -> None:
     )
     if overflow_ids:
         Event.objects.using(alias).filter(id__in=overflow_ids).delete()
+    return created
+
+
+def _fire(signal: Any, issue_id: int, event: Event | None, alias: str) -> None:
+    if not signal.has_listeners():
+        return
+    issue = Issue.objects.using(alias).filter(pk=issue_id).first()
+    if issue is None:
+        return
+    signals.send_safely(signal, issue=issue, event=event)
 
 
 def _update_daily_counts(issue_id: int, aggregate: Aggregate, alias: str) -> None:

@@ -3,13 +3,14 @@
 """
 
 import datetime as dt
+import threading
 
 import pytest
 from django.db import IntegrityError
-from django.test import override_settings
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from admin_errors import storage
+from admin_errors import signals, storage, writer
 from admin_errors.models import Event, Issue, IssueDailyCount
 
 pytestmark = pytest.mark.django_db
@@ -218,3 +219,131 @@ def test_query_budget_existing_issue_with_three_samples(django_assert_max_num_qu
     # savepoint statement while still catching a per-row insert loop or a per-date N+1.
     with django_assert_max_num_queries(8):
         storage.store_batch({"fp-budget-3": agg2})
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_threads_storing_one_new_fingerprint_create_one_issue():
+    """Both threads race `_create_issue` for a brand-new fingerprint; PostgreSQL aborts the whole
+    transaction on the loser's `IntegrityError`, so this exercises the per-aggregate savepoint."""
+    agg = _agg()
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        from django.db import connection
+
+        try:
+            barrier.wait(timeout=5.0)
+            storage.store_batch({"fp-race": agg})
+        except BaseException as exc:  # surfaced via `errors`, not swallowed
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5.0)
+
+    assert not errors
+    issues = list(Issue.objects.filter(fingerprint="fp-race"))
+    assert len(issues) == 1
+    assert issues[0].count == 2
+
+
+class SignalOnCommitTests(TestCase):
+    """`captureOnCommitCallbacks` is the only fixture that can prove a signal fires *after* commit,
+    not merely eventually — `django_db(transaction=True)` would prove the callback ran, not that
+    storage waited for the commit to run it.
+    """
+
+    def setUp(self) -> None:
+        self.created: list[dict] = []
+        self.regressed: list[dict] = []
+        signals.issue_created.connect(self._on_created, dispatch_uid="test-storage-created")
+        signals.issue_regressed.connect(self._on_regressed, dispatch_uid="test-storage-regressed")
+        writer.stats.receiver_errors = 0
+
+    def tearDown(self) -> None:
+        signals.issue_created.disconnect(dispatch_uid="test-storage-created")
+        signals.issue_regressed.disconnect(dispatch_uid="test-storage-regressed")
+
+    def _on_created(self, sender, **kwargs) -> None:
+        self.created.append(kwargs)
+
+    def _on_regressed(self, sender, **kwargs) -> None:
+        self.regressed.append(kwargs)
+
+    def test_issue_created_fires_only_after_commit(self) -> None:
+        agg = _agg()
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            storage.store_batch({"fp-signal-created": agg})
+        assert self.created == []  # not fired before the callback runs
+        for callback in callbacks:
+            callback()
+
+        assert len(self.created) == 1
+        kwargs = self.created[0]
+        assert kwargs["issue"].fingerprint == "fp-signal-created"
+        assert kwargs["event"] is not None
+
+    def test_issue_created_with_count_only_aggregate_passes_event_none(self) -> None:
+        agg = _agg(samples=[])
+        with self.captureOnCommitCallbacks(execute=True):
+            storage.store_batch({"fp-signal-count-only": agg})
+
+        assert len(self.created) == 1
+        assert self.created[0]["event"] is None
+
+    def test_issue_regressed_fires_on_reopen_not_created(self) -> None:
+        agg = _agg()
+        storage.store_batch({"fp-signal-regressed": agg})
+        issue = Issue.objects.get(fingerprint="fp-signal-regressed")
+        issue.status = Issue.Status.RESOLVED
+        issue.save(update_fields=["status"])
+        self.created.clear()
+
+        later = agg.first_ts + dt.timedelta(hours=1)
+        agg2 = _agg(_now=later, samples=[(later, {"v": 1, "message": "regressed"})])
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            storage.store_batch({"fp-signal-regressed": agg2})
+        assert self.regressed == []  # not fired before the callback runs
+        for callback in callbacks:
+            callback()
+
+        assert len(self.regressed) == 1
+        assert self.regressed[0]["issue"].fingerprint == "fp-signal-regressed"
+        assert self.created == []
+
+    def test_ignored_issue_fires_nothing(self) -> None:
+        agg = _agg()
+        storage.store_batch({"fp-signal-ignored": agg})
+        issue = Issue.objects.get(fingerprint="fp-signal-ignored")
+        issue.status = Issue.Status.IGNORED
+        issue.save(update_fields=["status"])
+        self.created.clear()
+
+        later = agg.first_ts + dt.timedelta(hours=1)
+        agg2 = _agg(_now=later, samples=[(later, {"v": 1, "message": "again"})])
+        with self.captureOnCommitCallbacks(execute=True):
+            storage.store_batch({"fp-signal-ignored": agg2})
+
+        assert self.created == []
+        assert self.regressed == []
+
+    def test_raising_receiver_is_swallowed(self) -> None:
+        def boom(sender, **kwargs):
+            raise RuntimeError("receiver exploded")
+
+        signals.issue_created.connect(boom, dispatch_uid="test-storage-boom-receiver")
+        try:
+            agg = _agg()
+            with self.captureOnCommitCallbacks(execute=True):
+                storage.store_batch({"fp-signal-raising": agg})
+        finally:
+            signals.issue_created.disconnect(dispatch_uid="test-storage-boom-receiver")
+
+        # storage itself did not raise, and the well-behaved receiver still got the signal.
+        assert len(self.created) == 1
+        assert writer.stats.receiver_errors == 1

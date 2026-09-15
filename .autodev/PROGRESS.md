@@ -1,14 +1,14 @@
 # Autodev progress — django-admin-errors
 
 - **Status:** running
-- **Current:** phase 3/10 · step `commit`
+- **Current:** phase 4/10 · step `commit`
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260915-1213`
 - **Stack:** Python 3.10-3.13, Django 4.2/5.2/6.0/6.1, SQLite + PostgreSQL 13+, zero runtime deps beyond Django, hatchling src-layout wheel, pytest + pytest-django, ruff, tox, pytest-playwright for e2e · **Profile:** `django-htmx`
 - **Test command:** `uv run pytest -q` · **E2E:** `uv run --extra e2e pytest e2e -q`
-- **Usage:** 5h ? (reset 15.09 17:40) · 7d ?
-- **Totals:** 28 sessions · 2.2 h agent time · ≈$38.81 API-equivalent
-- **Clock:** 2.2 h since the run was created · 2.2 h working · 0.0 h paused on the usage limit · 0.0 h not running
-- **Updated:** 2026-09-15 14:25:15
+- **Usage:** 5h ? (reset 15.09 22:40) · 7d ?
+- **Totals:** 40 sessions · 3.0 h agent time · ≈$54.14 API-equivalent
+- **Clock:** 5.8 h since the run was created · 3.0 h working · 0.7 h paused on the usage limit · 2.1 h not running
+- **Updated:** 2026-09-15 18:01:55
 
 ## Phases
 
@@ -16,8 +16,8 @@
 |---|---|---|---|---|---|
 | 1 | Scaffold and toolchain | no | ✅ done | cc03ee9 |  |
 | 2 | Settings proxy, models and fingerprint | no | ✅ done | f4d14b2 |  |
-| 3 | Capture pipeline and storage (sync transport) | no | 🔨 in_progress |  |  |
-| 4 | Background writer, sampling and signals | no | ⏳ pending |  |  |
+| 3 | Capture pipeline and storage (sync transport) | no | ✅ done | e8e90a8 |  |
+| 4 | Background writer, sampling and signals | no | 🔨 in_progress |  |  |
 | 5 | Retention, commands, dedicated alias and Celery | no | ⏳ pending |  |  |
 | 6 | PostgreSQL pass | no | ⏳ pending |  |  |
 | 7 | Demo project | yes | ⏳ pending |  |  |
@@ -74,6 +74,27 @@
 - `2026-09-15 14:23:09` **p03-review_audit2** — approve (2m, $0.84): All four REVIEW-r2 findings are fixed in the product/tests by this diff, each with a test that fails without the fix. Verified the MAJOR independently: the nested-raise traceback yields 4 frames by default and exactly 1 ('_innermost') under MAX_FRAMES=1, so the rewritten test discriminates removal …
 - `2026-09-15 14:25:15` **p03-docs** — done (2m, $0.44): Verified docs against phase 3 diff (context.py, capture.py, storage.py, api.py, handlers.py, middleware.py, signals.py, apps.py, tests). No edits needed: CLAUDE.md commands/stack/pitfalls still true (no command changed; capture-never-raises and PG-savepoint pitfalls already match the implementation…
 - `2026-09-15 14:25:15` **p03-docs** — no changes: the documentation was already true for this phase
+- `2026-09-15 14:25:16` **p03-commit** — done: e8e90a8
+- `2026-09-15 14:25:17` **push** — done: korkholeh/django-admin-errors@autodev/spec-20260915-1213 as korkholeh
+- `2026-09-15 14:30:47` **p04-plan** — done (5m, $1.94): Wrote .autodev/phases/04-writer-and-signals/PLAN.md with Context / Design / 13-task checklist / Verification table mapping every acceptance criterion to a named test / Risks / Out of scope, after reading the existing capture, storage, conf, apps and test modules plus spec §7.2, §9.1, §10, §14.2 and…
+- `2026-09-15 14:48:03` **p04-implement** — handover: context reached 200,250 tokens — checkpointing for a fresh session
+- `2026-09-15 14:48:03` **run** — stopped: STOP file
+- `2026-09-15 14:48:04` **push** — done: korkholeh/django-admin-errors@autodev/spec-20260915-1213 as korkholeh
+- `2026-09-15 16:51:12` **p04-implement** — handover: context reached 200,913 tokens — checkpointing for a fresh session
+- `2026-09-15 16:52:48` **p04-implement** — partial (1m, $1.51): Phase 4 (background writer, sampling, signals) — T1 through T10 done, tree green. Built: signals.py (issue_created/issue_regressed/issue_status_changed + send_safely over send_robust), writer.py (Writer/Stats, lazy-started daemon thread, aggregation, flush triggers, OperationalError retry-then-drop…
+- `2026-09-15 16:58:07` **p04-implement** — done (5m, $1.31): Finished phase 4 remaining tasks T11-T13. Added tests/test_capture.py cases for admission/sampling (EVENT_SAMPLE_PER_HOUR cap, NEW_ISSUES_PER_MINUTE drop+count, seen-fp positive pair, sample-per-hour=0 count-only, bucket refill via monkeypatched monotonic clock, and a TRANSPORT="thread" end-to-end …
+- `2026-09-15 16:58:09` **p04-tests** — pass: exit 0: 139 passed in 1.81s
+- `2026-09-15 16:59:56` **usage** — paused: 5h usage 90% ≥ 85%; sleeping until ≈15.09 17:42
+- `2026-09-15 17:42:00` **usage** — resumed: 5h ? (reset ?) · 7d ?
+- `2026-09-15 17:46:42` **p04-review1** — changes_requested (6m, $2.33): Phase 4 delivers the goal: DB I/O is off the request path, the lazily started daemon thread is correct in its core loop (FIFO-ordered flush requests, batch/interval/explicit triggers, put_nowait overflow, pid check), admission and sampling match spec §7.2 step order, and signals fire from on_commit…
+- `2026-09-15 17:51:21` **p04-review_fix1** — done (4m, $0.92): Fixed all findings from REVIEW-r1, round 1. None rejected. BLOCKER fixed: added tests/sqlite_immediate/base.py (a DatabaseWrapper subclass issuing `BEGIN IMMEDIATE`), wired into tests/settings.py ENGINE for django<5.1 — verified `test_two_threads_storing_one_new_fingerprint_create_one_issue` now pa…
+- `2026-09-15 17:51:24` **p04-tests** — pass: exit 0: 141 passed in 2.25s
+- `2026-09-15 17:56:02` **p04-review2** — changes_requested (4m, $1.88): Phase 4 meets its goal and all six r1 findings are genuinely fixed — verified independently: `uv run pytest -q` 141 passed, `uv run tox -e py312-dj42-sqlite` 141 passed (the r1 blocker's Django-4.2 deadlock is gone, fixed properly via the `tests.sqlite_immediate` BEGIN IMMEDIATE backend rather than…
+- `2026-09-15 17:58:07` **p04-review_fix2** — done (2m, $0.51): Fixed all 3 REVIEW-r2 findings, none rejected. - [MAJOR] Busy-spin on failing idle-connection close: wrapped `connections[conf.DATABASE].close()` in its own try/except/finally in writer.py's `_run` so `last_activity` always advances even when close raises repeatedly (previously the outer handler sk…
+- `2026-09-15 17:58:10` **p04-tests** — pass: exit 0: 144 passed in 2.64s
+- `2026-09-15 18:00:19` **p04-review_audit2** — approve (2m, $0.61): All three REVIEW-r2 findings are genuinely fixed in the product by this diff, none rejected, each logged in DECISIONS. The MAJOR busy-spin fix (writer.py:170-177) wraps the idle close in its own try/except with `finally: last_activity = time.monotonic()`, covering the review's exact ConnectionDoesN…
+- `2026-09-15 18:01:55` **p04-docs** — done (1m, $0.51): Checked doc set against phase 4 diff (writer.py, capture.py, signals.py, storage.py, api.py, benchmarks, tests). CLAUDE.md already has the benchmark command row and correct pitfalls/conventions (sync default, transport, lazy thread start). CHANGELOG.md Unreleased entry already covers writer, admiss…
+- `2026-09-15 18:01:55` **p04-docs** — no changes: the documentation was already true for this phase
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.

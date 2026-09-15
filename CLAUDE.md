@@ -25,6 +25,7 @@ All commands run from the repository root, non-interactively, with no venv activ
 | test on PostgreSQL | `DJANGO_DB=postgres ADMIN_ERRORS_TEST_PG_URL=postgres://postgres:postgres@localhost:5432/admin_errors_test uv run pytest -q` |
 | **lint** | `uv run ruff check . && uv run ruff format --check . && uv run python -m django check --settings=tests.settings && uv run python -m django makemigrations admin_errors --check --dry-run --settings=tests.settings` |
 | format | `uv run ruff format .` |
+| benchmark | `uv run python benchmarks/bench_capture.py` |
 | full matrix | `uv run tox` |
 | build | `uv run python -m build && uv run twine check dist/*` |
 | **e2e** | `make e2e-up && uv run --extra e2e pytest e2e -q && make e2e-down` |

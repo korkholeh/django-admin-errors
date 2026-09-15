@@ -15,7 +15,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.test import AsyncClient, Client, override_settings
 
-from admin_errors import api, capture
+from admin_errors import api, capture, writer
 from admin_errors.apps import AdminErrorsConfig
 from admin_errors.handlers import AdminErrorsHandler
 from admin_errors.models import Event, Issue
@@ -139,7 +139,12 @@ def test_ignored_exception_types_cover_subclasses():
 
 
 def test_ignore_exceptions_positive_control_and_unresolvable_dotted_path():
-    with override_settings(ADMIN_ERRORS={"IGNORE_EXCEPTIONS": ["not.a.real.module.NopeError"]}):
+    with override_settings(
+        ADMIN_ERRORS={
+            "IGNORE_EXCEPTIONS": ["not.a.real.module.NopeError"],
+            "TRANSPORT": "sync",
+        }
+    ):
         fp = api.capture_exception(Http404("now captured"))
 
     assert fp is not None
@@ -199,7 +204,9 @@ def test_capture_in_debug_false_is_a_noop():
         raise ValueError("boom again")
     except ValueError as exc:
         record = _make_record(exc_info=_exc_info(exc))
-        with override_settings(DEBUG=True, ADMIN_ERRORS={"CAPTURE_IN_DEBUG": True}):
+        with override_settings(
+            DEBUG=True, ADMIN_ERRORS={"CAPTURE_IN_DEBUG": True, "TRANSPORT": "sync"}
+        ):
             assert capture.capture_record(record) is not None
     assert Issue.objects.count() == 1
 
@@ -209,7 +216,7 @@ def test_before_send_can_mutate_the_payload():
         payload["extra"] = {**(payload.get("extra") or {}), "marked": "yes"}
         return payload
 
-    with override_settings(ADMIN_ERRORS={"BEFORE_SEND": add_marker}):
+    with override_settings(ADMIN_ERRORS={"BEFORE_SEND": add_marker, "TRANSPORT": "sync"}):
         fp = api.capture_message("mutate me")
 
     event = Event.objects.get(issue__fingerprint=fp)
@@ -236,7 +243,7 @@ def test_storage_failure_does_not_propagate_or_recurse(monkeypatch):
     client = Client(raise_request_exception=False)
     # INTERNAL_LOGGING=True makes the failure log a WARNING to "admin_errors.internal" through the
     # very same root handler; if that re-entered the pipeline, `store_batch` would be called twice.
-    with override_settings(ADMIN_ERRORS={"INTERNAL_LOGGING": True}):
+    with override_settings(ADMIN_ERRORS={"INTERNAL_LOGGING": True, "TRANSPORT": "sync"}):
         response = client.get("/boom/")
 
     assert response.status_code == 500
@@ -266,7 +273,7 @@ def test_max_frames_bounds_the_stored_frame_count():
     unbounded_event = Event.objects.get(issue__fingerprint=fp)
     assert len(unbounded_event.payload["frames"]) >= 3
 
-    with override_settings(ADMIN_ERRORS={"MAX_FRAMES": 1}):
+    with override_settings(ADMIN_ERRORS={"MAX_FRAMES": 1, "TRANSPORT": "sync"}):
         try:
             _deeply_nested_raise()
         except ValueError as exc:
@@ -280,7 +287,7 @@ def test_max_frames_bounds_the_stored_frame_count():
 
 
 def test_max_var_repr_length_truncates_locals():
-    with override_settings(ADMIN_ERRORS={"MAX_VAR_REPR_LENGTH": 5}):
+    with override_settings(ADMIN_ERRORS={"MAX_VAR_REPR_LENGTH": 5, "TRANSPORT": "sync"}):
         try:
             long_local = "x" * 1000  # noqa: F841 - captured via the traceback locals
             raise ValueError("boom")
@@ -293,7 +300,7 @@ def test_max_var_repr_length_truncates_locals():
 
 
 def test_payload_degrades_to_the_minimal_shape_under_a_tiny_byte_cap():
-    with override_settings(ADMIN_ERRORS={"MAX_PAYLOAD_BYTES": 50}):
+    with override_settings(ADMIN_ERRORS={"MAX_PAYLOAD_BYTES": 50, "TRANSPORT": "sync"}):
         try:
             raise ValueError("a very long message " * 20)
         except ValueError as exc:
@@ -337,7 +344,7 @@ def test_capture_level_below_warning_lowers_the_root_logger():
 def test_debug_record_is_stored_with_a_level_in_issue_choices():
     """`CAPTURE_LEVEL="DEBUG"` makes a DEBUG record reachable (see the test above); its level name
     is outside `Issue.Level`'s four choices and must be mapped rather than stored verbatim."""
-    with override_settings(ADMIN_ERRORS={"CAPTURE_LEVEL": "DEBUG"}):
+    with override_settings(ADMIN_ERRORS={"CAPTURE_LEVEL": "DEBUG", "TRANSPORT": "sync"}):
         fp = capture.capture_record(_make_record(level=logging.DEBUG, msg="debug detail"))
 
     issue = Issue.objects.get(fingerprint=fp)
@@ -351,3 +358,79 @@ def test_capture_message_with_unknown_level_clamps_to_error():
     issue = Issue.objects.get(fingerprint=fp)
     assert issue.level in Issue.Level.values
     assert issue.level == Issue.Level.ERROR
+
+
+# --- Admission and sampling (spec section 7.2 steps 4-5) --------------------------------------
+
+
+def test_event_sampling_caps_stored_events_not_the_count():
+    with override_settings(ADMIN_ERRORS={"EVENT_SAMPLE_PER_HOUR": 2, "TRANSPORT": "sync"}):
+        fp = None
+        for _ in range(10):
+            fp = api.capture_message("sampled repeatedly", fingerprint="sampled-fp")
+
+    issue = Issue.objects.get(fingerprint=fp)
+    assert issue.count == 10
+    assert Event.objects.filter(issue=issue).count() == 2
+
+
+def test_new_issue_admission_drops_and_counts():
+    with override_settings(ADMIN_ERRORS={"NEW_ISSUES_PER_MINUTE": 3, "TRANSPORT": "sync"}):
+        for i in range(10):
+            api.capture_message(f"unique admission error {i}", fingerprint=f"admission-fp-{i}")
+
+    assert Issue.objects.count() == 3
+    assert writer.stats.dropped_new_issue == 7
+
+
+def test_already_seen_fingerprint_is_admitted_with_an_empty_new_issue_bucket():
+    """Positive pair for the refusal case: a truly new fingerprint is dropped under the same
+    exhausted bucket that still lets an already-seen one through."""
+    with override_settings(ADMIN_ERRORS={"TRANSPORT": "sync"}):
+        fp = api.capture_message("seen before", fingerprint="seen-fp")
+
+    with override_settings(ADMIN_ERRORS={"NEW_ISSUES_PER_MINUTE": 0, "TRANSPORT": "sync"}):
+        again = api.capture_message("seen before", fingerprint="seen-fp")
+        dropped = api.capture_message("never seen before", fingerprint="brand-new-fp")
+
+    assert again == fp
+    assert dropped is None
+    assert Issue.objects.count() == 1
+    assert Issue.objects.get(fingerprint=fp).count == 2
+    assert writer.stats.dropped_new_issue == 1
+
+
+def test_event_sample_per_hour_zero_still_creates_the_issue_count_only():
+    with override_settings(ADMIN_ERRORS={"EVENT_SAMPLE_PER_HOUR": 0, "TRANSPORT": "sync"}):
+        fp = api.capture_message("count only", fingerprint="count-only-fp")
+
+    issue = Issue.objects.get(fingerprint=fp)
+    assert issue.count == 1
+    assert not Event.objects.filter(issue=issue).exists()
+
+
+def test_sample_bucket_refills_after_the_configured_period(monkeypatch):
+    fake_time = [1_000.0]
+    monkeypatch.setattr(capture.time, "monotonic", lambda: fake_time[0])
+
+    with override_settings(ADMIN_ERRORS={"EVENT_SAMPLE_PER_HOUR": 1, "TRANSPORT": "sync"}):
+        fp = api.capture_message("refill test", fingerprint="refill-fp")
+        api.capture_message("refill test", fingerprint="refill-fp")
+        assert Event.objects.filter(issue__fingerprint=fp).count() == 1
+
+        fake_time[0] += 3_600.0
+        api.capture_message("refill test", fingerprint="refill-fp")
+        assert Event.objects.filter(issue__fingerprint=fp).count() == 2
+
+    assert Issue.objects.get(fingerprint=fp).count == 3
+
+
+@pytest.mark.django_db(transaction=True)
+def test_thread_transport_end_to_end_via_client_and_flush():
+    client = Client(raise_request_exception=False)
+    with override_settings(ADMIN_ERRORS={"TRANSPORT": "thread"}):
+        response = client.get("/boom/")
+        assert response.status_code == 500
+        api.flush()
+
+    assert Issue.objects.count() == 1

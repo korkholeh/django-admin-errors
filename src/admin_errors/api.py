@@ -7,7 +7,7 @@ from typing import Any
 
 from django.http import HttpRequest
 
-from admin_errors import capture
+from admin_errors import capture, writer
 
 
 def capture_exception(
@@ -55,7 +55,7 @@ def capture_message(
 def flush(timeout: float | None = 2.0) -> None:
     """Block until the writer queue is drained.
 
-    No-op under `TRANSPORT="sync"` (every capture is already written by the time it returns). The
-    thread transport's writer is wired in a later phase.
+    No-op under `TRANSPORT="sync"` (every capture is already written by the time it returns) and
+    when no writer thread was ever started.
     """
-    return None
+    writer.get_writer().flush(2.0 if timeout is None else timeout)

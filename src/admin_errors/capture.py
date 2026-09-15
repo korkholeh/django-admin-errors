@@ -2,18 +2,20 @@
 
 Nothing here may ever raise or recurse: the whole pipeline runs inside its own
 `try/except BaseException` (re-raising `KeyboardInterrupt`/`SystemExit`), guarded by a thread-local
-recursion flag. Admission and sampling (`NEW_ISSUES_PER_MINUTE`, `EVENT_SAMPLE_PER_HOUR`) are not
-implemented yet — every non-dropped item gets a full payload and is dispatched synchronously; the
-writer thread and its buckets land in a later phase.
+recursion flag. Steps 4-5 (admission, sampling) bound a storm to one issue and a handful of events
+before the expensive payload (step 6) is built; step 7 dispatches to the writer thread under
+`TRANSPORT="thread"`, or writes inline otherwise.
 """
 
 from __future__ import annotations
 
+import collections
 import dataclasses
 import datetime
 import json
 import logging
 import threading
+import time
 from types import TracebackType
 from typing import Any
 
@@ -22,7 +24,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
-from admin_errors import context, fingerprint, storage
+from admin_errors import context, fingerprint, storage, writer
 from admin_errors.conf import settings as conf
 from admin_errors.models import Issue
 
@@ -59,6 +61,91 @@ _internal_logged_types: set[str] = set()
 _ignore_exception_types_cache: dict[str, type[BaseException] | None] = {}
 
 _API_LOGGER = "admin_errors.api"
+
+# Admission and sampling state (spec section 7.2 steps 4-5). Bounded LRUs of 10 000 entries: an
+# already-seen fingerprint is always admitted; a miss is only admitted while `_new_issue_bucket`
+# has a token. Neither structure is locked (see DECISIONS.md p04-plan/capture): the architecture's
+# risk-3 mitigation forbids a shared lock on this path, and an interleaved read-modify-write costs
+# at most one extra/missing sample, within the "counts are approximate by design" contract.
+_RATE_LIMIT_LRU_SIZE = 10_000
+
+
+class _TokenBucket:
+    """Capacity and period are re-read from `conf` on every call, so `override_settings` takes
+    effect immediately. Capacity `None` means unlimited; capacity `<= 0` means no token is ever
+    granted (see DECISIONS.md p04-plan/capture)."""
+
+    def __init__(self, capacity_setting: str, period: float) -> None:
+        self._capacity_setting = capacity_setting
+        self._period = period
+        self._tokens: float | None = None
+        self._last_refill = 0.0
+
+    def take(self) -> bool:
+        capacity = getattr(conf, self._capacity_setting)
+        if capacity is None:
+            return True
+        if capacity <= 0:
+            return False
+        now = time.monotonic()
+        if self._tokens is None:
+            self._tokens = float(capacity)
+        else:
+            elapsed = max(now - self._last_refill, 0.0)
+            refilled = self._tokens + elapsed * (capacity / self._period)
+            self._tokens = min(float(capacity), refilled)
+        self._last_refill = now
+        if self._tokens >= 1:
+            self._tokens -= 1
+            return True
+        return False
+
+
+_seen_fingerprints: collections.OrderedDict[str, None] = collections.OrderedDict()
+_new_issue_bucket = _TokenBucket("NEW_ISSUES_PER_MINUTE", 60)
+_sample_buckets: collections.OrderedDict[str, _TokenBucket] = collections.OrderedDict()
+
+
+def reset_rate_limits() -> None:
+    """Clear admission/sampling state so budgets never leak between tests."""
+    global _new_issue_bucket
+    _seen_fingerprints.clear()
+    _sample_buckets.clear()
+    _new_issue_bucket = _TokenBucket("NEW_ISSUES_PER_MINUTE", 60)
+
+
+def mark_thread_internal() -> None:
+    """Permanently mark the calling thread as internal to admin_errors (the writer thread).
+
+    Unlike the per-call recursion guard, this flag is never cleared: anything the writer thread
+    itself logs at ERROR (e.g. an internal-logging warning) must not re-enter capture.
+    """
+    _recursion_guard.active = True
+
+
+def _admit_fingerprint(fp: str) -> bool:
+    if fp in _seen_fingerprints:
+        _seen_fingerprints.move_to_end(fp)
+        return True
+    if not _new_issue_bucket.take():
+        writer.stats.dropped_new_issue += 1
+        return False
+    _seen_fingerprints[fp] = None
+    if len(_seen_fingerprints) > _RATE_LIMIT_LRU_SIZE:
+        _seen_fingerprints.popitem(last=False)
+    return True
+
+
+def _should_sample(fp: str) -> bool:
+    bucket = _sample_buckets.get(fp)
+    if bucket is None:
+        bucket = _TokenBucket("EVENT_SAMPLE_PER_HOUR", 3600)
+        _sample_buckets[fp] = bucket
+        if len(_sample_buckets) > _RATE_LIMIT_LRU_SIZE:
+            _sample_buckets.popitem(last=False)
+    else:
+        _sample_buckets.move_to_end(fp)
+    return bucket.take()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -259,19 +346,27 @@ def _enforce_size(payload: dict[str, Any]) -> dict[str, Any]:
     return minimal
 
 
-def _store(
+def _dispatch(
     fingerprint_value: str,
     meta: dict[str, str],
     timestamp: datetime.datetime,
-    payload: dict[str, Any],
+    payload: dict[str, Any] | None,
 ) -> str:
+    if conf.TRANSPORT == "thread":
+        writer.get_writer().enqueue(
+            CapturedItem(
+                fingerprint=fingerprint_value, meta=meta, timestamp=timestamp, payload=payload
+            )
+        )
+        return fingerprint_value
+
     date = timestamp.astimezone(datetime.timezone.utc).date()
     aggregate = storage.Aggregate(
         meta=meta,
         count=1,
         first_ts=timestamp,
         last_ts=timestamp,
-        samples=[(timestamp, payload)],
+        samples=[(timestamp, payload)] if payload is not None else [],
         dates={date: 1},
     )
     storage.store_batch({fingerprint_value: aggregate}, using=conf.DATABASE)
@@ -303,6 +398,13 @@ def _build_and_store(
         "logger": logger_name,
     }
     timestamp = timezone.now()
+
+    if not _admit_fingerprint(fp):
+        return None
+
+    if not _should_sample(fp):
+        return _dispatch(fp, meta, timestamp, None)
+
     payload = context.build_payload(
         source=source,
         level=level,
@@ -329,7 +431,7 @@ def _build_and_store(
     if payload is None:
         return None
     payload = _enforce_size(payload)
-    return _store(fp, meta, timestamp, payload)
+    return _dispatch(fp, meta, timestamp, payload)
 
 
 def _capture_record(record: logging.LogRecord) -> str | None:
