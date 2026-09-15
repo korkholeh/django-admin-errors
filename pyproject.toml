@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "django-admin-errors"
+dynamic = ["version"]
+description = "Sentry-style error tracking inside the Django admin, stored in your own database."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Oleh Korkh", email = "korkholeh@gmail.com" }]
+dependencies = ["Django>=4.2"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
+  "Framework :: Django",
+  "Framework :: Django :: 4.2",
+  "Framework :: Django :: 5.2",
+  "Framework :: Django :: 6.0",
+  "Framework :: Django :: 6.1",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/korkholeh/django-admin-errors"
+Changelog = "https://github.com/korkholeh/django-admin-errors/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+e2e = ["pytest-playwright"]
+celery = ["celery>=5"]
+postgres = ["psycopg[binary]>=3.1"]
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pytest-django",
+  "pytest-cov",
+  "coverage",
+  "ruff",
+  "build",
+  "twine",
+  "tox",
+  "tox-uv",
+]
+
+[tool.hatch.version]
+path = "src/admin_errors/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/admin_errors"]
+artifacts = [
+  "src/admin_errors/locale/**/*.mo",
+  "src/admin_errors/static/**",
+  "src/admin_errors/templates/**",
+]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "tests/", "tox.ini", ".github/workflows/ci.yml", "README.md", "CHANGELOG.md", "LICENSE"]
+exclude = [".autodev/", "demo/", "e2e/", "docs/img/"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "DJ", "RUF"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.settings"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers --strict-config"
+
+[tool.coverage.run]
+source = ["admin_errors"]
+branch = true

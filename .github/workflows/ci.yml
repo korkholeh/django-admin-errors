@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "autodev/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv run tox -e lint
+
+  sqlite-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { toxenv: "py310-dj42-sqlite" }
+          - { toxenv: "py310-dj52-sqlite" }
+          - { toxenv: "py311-dj42-sqlite" }
+          - { toxenv: "py311-dj52-sqlite" }
+          - { toxenv: "py312-dj42-sqlite" }
+          - { toxenv: "py312-dj52-sqlite" }
+          - { toxenv: "py312-dj60-sqlite" }
+          - { toxenv: "py312-dj61-sqlite" }
+          - { toxenv: "py313-dj52-sqlite" }
+          - { toxenv: "py313-dj60-sqlite" }
+          - { toxenv: "py313-dj61-sqlite" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: >
+          uv run tox -e ${{ matrix.toxenv }} --
+          -q --cov=admin_errors --cov-report=term-missing --cov-fail-under=90
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: admin_errors_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DJANGO_DB: postgres
+      ADMIN_ERRORS_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/admin_errors_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv run tox -e py313-dj52-postgres,py313-dj61-postgres
+
+  celery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv run tox -e celery
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv run tox -e package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
