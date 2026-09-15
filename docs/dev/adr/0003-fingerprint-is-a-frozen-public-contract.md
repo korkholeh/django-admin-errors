@@ -23,9 +23,12 @@ matching, and the same live bug is recorded a second time under a new row — wi
 1. Fully qualified type of the **outermost** exception (`module.QualName`).
 2. `culprit` — `module.function` of the innermost **in-app** frame of that exception's traceback; if
    there is no in-app frame, the innermost frame overall.
-3. The **normalised** message — `str(exc)`, first line, ≤ 200 chars, with: UUIDs → `<uuid>`; hex runs
-   ≥ 8 chars → `<hex>`; `0x…` addresses → `<addr>`; ISO-8601 timestamps → `<ts>`; remaining digit runs →
-   `#`; single- and double-quoted literals → `<str>`; whitespace collapsed.
+3. The **normalised** message — `str(exc)`, first non-blank line, with, in this exact order (the order
+   is itself part of the frozen contract: each rule must run before the more general one that would
+   otherwise eat its input): UUIDs → `<uuid>`; ISO-8601 dates/times → `<ts>`; `0x…` addresses → `<addr>`;
+   remaining hex runs ≥ 8 chars → `<hex>`; single- and double-quoted literals → `<str>`; remaining digit
+   runs → `#`; whitespace collapsed; truncated to ≤ 200 chars last, so the cap applies to the normalised
+   form the hash actually sees.
 
 **For message-only records** (no `exc_info`), parts are the logger name, `record.levelname`, and
 `record.msg` — the **unformatted** template (`"Payment failed for order %s"`), not

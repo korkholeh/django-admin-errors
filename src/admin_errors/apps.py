@@ -9,7 +9,13 @@ class AdminErrorsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self) -> None:
-        """Nothing yet: Phase 2 registers checks, Phase 3 installs the handler.
+        """Register system checks. Phase 3 installs the logging handler.
 
         Must never query the database, start a thread, or touch the filesystem here.
         """
+        from django.core.checks import Tags, register
+
+        from admin_errors import checks
+
+        register(checks.check_settings_keys, Tags.compatibility)
+        register(checks.check_sqlite_version, Tags.compatibility)

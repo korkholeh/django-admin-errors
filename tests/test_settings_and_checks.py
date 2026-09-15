@@ -1,0 +1,126 @@
+import sqlite3
+
+import pytest
+from django.core.checks import Error, Warning, run_checks
+from django.test import override_settings
+
+from admin_errors import checks
+from admin_errors.conf import DEFAULTS, settings
+
+# Literal expected table from spec section 5 — not re-derived from DEFAULTS, so a change to one
+# without the other fails this test.
+EXPECTED_DEFAULTS = {
+    "ENABLED": True,
+    "DATABASE": "default",
+    "TRANSPORT": "thread",
+    "CAPTURE_LEVEL": "ERROR",
+    "AUTO_INSTALL_LOGGING_HANDLER": True,
+    "CAPTURE_IN_DEBUG": True,
+    "IGNORE_LOGGERS": ["django.security.DisallowedHost"],
+    "IGNORE_EXCEPTIONS": [
+        "django.http.Http404",
+        "django.core.exceptions.PermissionDenied",
+    ],
+    "IGNORE_HTTP_STATUS_BELOW": 500,
+    "BEFORE_SEND": None,
+    "IN_APP_INCLUDE": None,
+    "IN_APP_EXCLUDE": ["site-packages", "dist-packages", "/lib/python"],
+    "CAPTURE_LOCALS": True,
+    "CAPTURE_REQUEST_BODY": False,
+    "MAX_BODY_BYTES": 4096,
+    "MAX_VAR_REPR_LENGTH": 200,
+    "MAX_FRAMES": 50,
+    "MAX_PAYLOAD_BYTES": 65536,
+    "EVENTS_PER_ISSUE": 20,
+    "EVENT_SAMPLE_PER_HOUR": 10,
+    "NEW_ISSUES_PER_MINUTE": 50,
+    "QUEUE_MAXSIZE": 1000,
+    "FLUSH_INTERVAL_SECONDS": 1.0,
+    "FLUSH_BATCH_SIZE": 200,
+    "EVENT_RETENTION_DAYS": 30,
+    "DAILY_COUNT_RETENTION_DAYS": 90,
+    "RESOLVED_ISSUE_TTL_DAYS": 14,
+    "OPEN_ISSUE_TTL_DAYS": 90,
+    "IGNORED_ISSUE_TTL_DAYS": None,
+    "MAX_ISSUES": 5000,
+    "CLEANUP": "opportunistic",
+    "CLEANUP_INTERVAL_SECONDS": 3600,
+    "SQLITE_VACUUM": "incremental",
+    "NOTIFY_BACKEND": "admin_errors.notifications.EmailNotifier",
+    "NOTIFY_RECIPIENTS": None,
+    "NOTIFY_THROTTLE_SECONDS": 3600,
+    "NOTIFY_ON": ["created", "regressed"],
+    "ADMIN_SITE": None,
+    "INTERNAL_LOGGING": False,
+}
+
+
+def test_defaults_match_spec_section_5():
+    assert DEFAULTS == EXPECTED_DEFAULTS
+
+
+def test_default_test_host_enables_capture():
+    # tests/settings.py overrides ADMIN_ERRORS = {"TRANSPORT": "sync"}; everything else is default.
+    assert settings.ENABLED is True
+    assert settings.TRANSPORT == "sync"
+    assert settings.EVENTS_PER_ISSUE == 20
+
+
+def test_override_settings_is_visible_and_reverts():
+    assert settings.EVENTS_PER_ISSUE == 20
+    with override_settings(ADMIN_ERRORS={"EVENTS_PER_ISSUE": 3}):
+        assert settings.EVENTS_PER_ISSUE == 3
+        assert settings.ENABLED is True  # other keys still fall back to their default
+    assert settings.EVENTS_PER_ISSUE == 20
+
+
+def test_unknown_attribute_raises_attribute_error():
+    with pytest.raises(AttributeError):
+        _ = settings.NOT_A_REAL_SETTING
+
+
+def test_unknown_keys_is_empty_for_the_test_host():
+    assert settings.unknown_keys() == []
+
+
+def test_as_dict_is_a_merged_copy():
+    merged = settings.as_dict()
+    assert merged == {**DEFAULTS, "TRANSPORT": "sync"}
+    assert merged is not settings._resolved()
+
+
+def test_default_test_settings_produce_no_admin_errors_messages():
+    messages = run_checks()
+    assert [m for m in messages if m.id and m.id.startswith("admin_errors.")] == []
+
+
+def test_unknown_setting_key_raises_w001():
+    # Goes through run_checks(), not checks.check_settings_keys() directly, so the ready()
+    # registration itself is load-bearing: deleting the register() call would also fail this.
+    with override_settings(ADMIN_ERRORS={"NOPE": 1}):
+        messages = [m for m in run_checks() if m.id == checks.W001_ID]
+    assert len(messages) == 1
+    assert isinstance(messages[0], Warning)
+    assert "NOPE" in messages[0].msg
+
+
+def test_old_sqlite_raises_e002(monkeypatch):
+    monkeypatch.setattr(sqlite3, "sqlite_version_info", (3, 8, 3))
+    # Goes through run_checks(), not checks.check_sqlite_version() directly, for the same reason
+    # as test_unknown_setting_key_raises_w001: the ready() registration must be load-bearing.
+    messages = [m for m in run_checks() if m.id == checks.E002_ID]
+    # tests/settings.py runs SQLite by default and Postgres under DJANGO_DB=postgres.
+    from django.conf import settings as django_settings
+
+    engine = django_settings.DATABASES[settings.DATABASE]["ENGINE"]
+    if engine.endswith("sqlite3"):
+        assert len(messages) == 1
+        assert isinstance(messages[0], Error)
+    else:
+        assert messages == []
+
+
+def test_e002_is_skipped_for_an_unknown_database_alias(monkeypatch):
+    monkeypatch.setattr(sqlite3, "sqlite_version_info", (3, 8, 3))
+    with override_settings(ADMIN_ERRORS={"DATABASE": "errors"}):
+        assert [m for m in run_checks() if m.id == checks.E002_ID] == []
