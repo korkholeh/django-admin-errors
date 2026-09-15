@@ -1,0 +1,10 @@
+logs/
+guides/
+state.json
+state.json.tmp
+run.pid
+STOP
+autodev.log
+console.log
+REPORT.xlsx
+REPORT.csv
