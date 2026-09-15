@@ -13,6 +13,8 @@ class AdminErrorsConfig(AppConfig):
 
         Must never query the database, start a thread, or touch the filesystem here.
         """
+        import importlib.util
+
         from django.core.checks import Tags, register
         from django.core.signals import got_request_exception
 
@@ -21,6 +23,8 @@ class AdminErrorsConfig(AppConfig):
 
         register(checks.check_settings_keys, Tags.compatibility)
         register(checks.check_sqlite_version, Tags.compatibility)
+        register(checks.check_database_alias, Tags.compatibility)
+        register(checks.check_logging_propagation, Tags.compatibility)
 
         if admin_errors_settings.AUTO_INSTALL_LOGGING_HANDLER:
             self._install_logging_handler()
@@ -29,6 +33,11 @@ class AdminErrorsConfig(AppConfig):
             signals.mark_request_on_exception,
             dispatch_uid="admin_errors.mark_request_on_exception",
         )
+
+        if importlib.util.find_spec("celery") is not None:
+            from admin_errors.integrations import celery as celery_integration
+
+            celery_integration.connect()
 
     @staticmethod
     def _install_logging_handler() -> None:

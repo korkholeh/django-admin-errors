@@ -1,0 +1,10 @@
+$ uv run pytest -q
+# exit code: 0   # 2026-09-15 18:46:42
+
+.........................................s.............................. [ 35%]
+..............s......................................................... [ 70%]
+...........................................................              [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_commands.py:120: only meaningful under DJANGO_DB=postgres
+SKIPPED [1] tests/test_retention.py:286: only meaningful under DJANGO_DB=postgres
+201 passed, 2 skipped in 3.75s

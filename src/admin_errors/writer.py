@@ -20,9 +20,10 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from django.core.cache import cache
 from django.db import OperationalError, close_old_connections, connections
 
-from admin_errors import storage
+from admin_errors import retention, storage
 from admin_errors.conf import settings as conf
 
 if TYPE_CHECKING:
@@ -32,6 +33,8 @@ if TYPE_CHECKING:
 # W001 and the Phase 10 README table are tested against (see DECISIONS.md p04-plan/writer).
 IDLE_CONNECTION_SECONDS = 60.0
 RETRY_SLEEP_SECONDS = 0.1
+
+CLEANUP_LOCK_KEY = "admin_errors:cleanup-lock"
 
 _WAKE = object()
 
@@ -46,6 +49,7 @@ class Stats:
     flushes: int = 0
     batches_dropped: int = 0
     receiver_errors: int = 0
+    cleanups: int = 0
     last_error: str | None = None
 
 
@@ -53,6 +57,10 @@ class Stats:
 # without starting a thread, and the counters must survive a fork-triggered `Writer` replacement
 # (see DECISIONS.md p04-plan/writer).
 stats = Stats()
+
+# Process-local, like `stats` above; cleared by `reset_for_tests()`
+# (see DECISIONS.md p05-plan/writer).
+_last_cleanup: float | None = None
 
 _writer: Writer | None = None
 _writer_lock = threading.Lock()
@@ -164,6 +172,7 @@ class Writer:
                     items_in_batch = 0
                     batch_started = None
                     self._flush(batch)
+                    self._maybe_cleanup()
                     last_activity = time.monotonic()
 
                 if not aggregates and time.monotonic() - last_activity >= IDLE_CONNECTION_SECONDS:
@@ -220,6 +229,28 @@ class Writer:
             stats.last_error = type(exc).__name__
             return
         stats.flushes += 1
+
+    def _maybe_cleanup(self) -> None:
+        global _last_cleanup
+        if conf.CLEANUP != "opportunistic":
+            return
+        interval = conf.CLEANUP_INTERVAL_SECONDS
+        now = time.monotonic()
+        if _last_cleanup is not None and now - _last_cleanup < interval:
+            return
+        _last_cleanup = now  # set *before* running: a failing cleanup must not retry-storm
+        try:
+            acquired = cache.add(CLEANUP_LOCK_KEY, 1, interval)
+        except Exception as exc:  # cache backend down: fall back to the process-local timestamp
+            stats.last_error = type(exc).__name__
+            acquired = True
+        if not acquired:
+            return
+        try:
+            retention.run_cleanup(using=conf.DATABASE)
+            stats.cleanups += 1
+        except Exception as exc:
+            stats.last_error = type(exc).__name__
 
     def flush(self, timeout: float = 2.0) -> None:
         if self._thread is None or not self._thread.is_alive():
@@ -303,9 +334,10 @@ def get_writer() -> Writer:
 
 def reset_for_tests() -> None:
     """Stop any running writer thread and reset module-global state between tests."""
-    global _writer, stats
+    global _writer, stats, _last_cleanup
     with _writer_lock:
         if _writer is not None:
             _writer.stop()
         _writer = None
     stats = Stats()
+    _last_cleanup = None

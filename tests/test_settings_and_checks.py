@@ -122,5 +122,70 @@ def test_old_sqlite_raises_e002(monkeypatch):
 
 def test_e002_is_skipped_for_an_unknown_database_alias(monkeypatch):
     monkeypatch.setattr(sqlite3, "sqlite_version_info", (3, 8, 3))
-    with override_settings(ADMIN_ERRORS={"DATABASE": "errors"}):
+    with override_settings(ADMIN_ERRORS={"DATABASE": "nope"}):
         assert [m for m in run_checks() if m.id == checks.E002_ID] == []
+
+
+def test_e001_for_missing_database_alias():
+    with override_settings(ADMIN_ERRORS={"DATABASE": "nope"}):
+        messages = [m for m in run_checks() if m.id == checks.E001_ID]
+    assert len(messages) == 1
+    assert isinstance(messages[0], Error)
+    assert "nope" in messages[0].msg
+
+
+def test_e001_silent_for_a_configured_alias():
+    assert [m for m in run_checks() if m.id == checks.E001_ID] == []
+
+
+def test_w002_propagate_false_without_admin_errors_handler():
+    logging_config = {
+        "version": 1,
+        "loggers": {"django.request": {"handlers": ["console"], "propagate": False}},
+    }
+    with override_settings(LOGGING=logging_config):
+        messages = [m for m in run_checks() if m.id == checks.W002_ID]
+    assert len(messages) == 1
+    assert isinstance(messages[0], Warning)
+    assert "django.request" in messages[0].msg
+
+
+def test_w002_silent_when_admin_errors_handler_present():
+    logging_config = {
+        "version": 1,
+        "handlers": {"admin_errors": {"class": "admin_errors.handlers.AdminErrorsHandler"}},
+        "loggers": {
+            "django.request": {"handlers": ["admin_errors"], "propagate": False},
+        },
+    }
+    with override_settings(LOGGING=logging_config):
+        messages = [m for m in run_checks() if m.id == checks.W002_ID]
+    assert messages == []
+
+
+def test_w002_propagate_false_on_django_logger():
+    logging_config = {
+        "version": 1,
+        "loggers": {"django": {"handlers": ["console"], "propagate": False}},
+    }
+    with override_settings(LOGGING=logging_config):
+        messages = [m for m in run_checks() if m.id == checks.W002_ID]
+    assert len(messages) == 1
+    assert "django" in messages[0].msg
+
+
+def test_w002_silent_with_no_logging_setting():
+    assert [m for m in run_checks() if m.id == checks.W002_ID] == []
+
+
+def test_w002_silent_when_admin_errors_handler_declared_via_factory_key():
+    logging_config = {
+        "version": 1,
+        "handlers": {"admin_errors": {"()": "admin_errors.handlers.AdminErrorsHandler"}},
+        "loggers": {
+            "django.request": {"handlers": ["admin_errors"], "propagate": False},
+        },
+    }
+    with override_settings(LOGGING=logging_config):
+        messages = [m for m in run_checks() if m.id == checks.W002_ID]
+    assert messages == []

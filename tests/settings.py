@@ -27,9 +27,24 @@ def database_from_url(url: str) -> dict[str, object]:
     }
 
 
+# A permanent second alias, always SQLite even under DJANGO_DB=postgres — the pattern spec
+# section 11.3 recommends for a dedicated-alias host, and what the routing tests need to prove
+# rows land only in the configured alias (see DECISIONS.md p05-plan/tests).
+_ERRORS_ALIAS = {
+    "ENGINE": "django.db.backends.sqlite3",
+    "NAME": ":memory:",
+    "TEST": {
+        "NAME": os.path.join(
+            tempfile.gettempdir(),
+            f"admin_errors_test_errors_{os.environ.get('TOX_ENV_NAME', 'local')}.sqlite3",
+        ),
+    },
+}
+
 if os.environ.get("DJANGO_DB") == "postgres":
     DATABASES = {
-        "default": database_from_url(os.environ.get("ADMIN_ERRORS_TEST_PG_URL", DEFAULT_PG_URL))
+        "default": database_from_url(os.environ.get("ADMIN_ERRORS_TEST_PG_URL", DEFAULT_PG_URL)),
+        "errors": _ERRORS_ALIAS,
     }
 else:
     # `NAME` is `:memory:` for non-test invocations (`django check`, `makemigrations --check`):
@@ -63,6 +78,7 @@ else:
     }
     if django.VERSION < (5, 1):
         DATABASES["default"]["ENGINE"] = "tests.sqlite_immediate"
+    DATABASES["errors"] = _ERRORS_ALIAS
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",

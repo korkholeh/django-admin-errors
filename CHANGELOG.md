@@ -64,3 +64,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   p50 ≈ 1.1 ms (budget ≤ 2 ms); with locals, p50 ≈ 1.3 ms (budget ≤ 10 ms); count-only (sampling
   budget exhausted), p50 ≈ 0.01 ms (budget ≤ 0.3 ms); `storage.store_batch` throughput, 10 000
   occurrences across 50 aggregates in ≈ 0.08 s (~120 000 occurrences/s).
+- `admin_errors.retention.run_cleanup` (spec section 9.3): the six bounded-storage rules (stale
+  events, stale daily counts, resolved/ignored/open issue TTLs, `MAX_ISSUES` eviction with
+  hysteresis, oldest-`last_seen`-first across ignored → resolved → open) plus an optional SQLite
+  `VACUUM`/`PRAGMA incremental_vacuum`, all chunked at 1000 ids per delete so a cleanup never holds
+  one long write lock. `--dry-run` reports every rule's count without deleting anything. Triggered
+  from three places: the `errors_cleanup` command, the writer's opportunistic hook (at most once
+  per `CLEANUP_INTERVAL_SECONDS` per process, cache-locked against other processes, disabled by
+  `CLEANUP="off"`), and the new `admin_errors.tasks.cleanup` Celery task.
+- Management commands: `errors_cleanup` (`--vacuum`, `--dry-run`, `--database`), `errors_stats`
+  (row counts, oldest/newest issue, per-status counts, approximate on-disk size, writer stats), and
+  `errors_test` (captures one real exception through the public API and prints the resulting
+  issue's admin URL, or a `CommandError` naming the likely cause when nothing was captured — the
+  "is it actually wired up?" instrument for risk 12).
+- `admin_errors.routers.AdminErrorsRouter`: an optional database router that pins the three
+  `admin_errors` models to `ADMIN_ERRORS['DATABASE']`, for hosts that want error storage on a
+  dedicated alias (spec section 11.3). Not installed by default.
+- System checks `admin_errors.E001` (`ADMIN_ERRORS['DATABASE']` names an alias that is not in
+  `settings.DATABASES`) and `admin_errors.W002` (`django.request`/`django` logger configured with
+  `propagate: False` and no `AdminErrorsHandler` in its own handler list, so captures never
+  happen).
+- Optional Celery integration: `admin_errors.integrations.celery` connects to the `task_failure`
+  signal (behind `importlib.util.find_spec("celery")`, so a host without Celery installed is
+  unaffected) and captures the failure with a `celery` context block (task name, task id,
+  truncated `args`/`kwargs`) alongside the exception's own context.

@@ -389,6 +389,7 @@ def _build_and_store(
     tb: TracebackType | None,
     record: logging.LogRecord | None,
     extra: dict[str, Any] | None,
+    celery: dict[str, Any] | None = None,
 ) -> str | None:
     meta = {
         "exception_type": exception_type,
@@ -416,6 +417,7 @@ def _build_and_store(
         exc_value=exc_value,
         tb=tb,
         record=record,
+        celery=celery,
     )
     if extra:
         merged_extra = dict(payload.get("extra") or {})
@@ -501,6 +503,7 @@ def _capture_exception(
     extra: dict[str, Any] | None,
     fingerprint_override: object,
     level: str,
+    celery: dict[str, Any] | None = None,
 ) -> str | None:
     if not conf.ENABLED or _capture_in_debug_disabled():
         return None
@@ -538,6 +541,7 @@ def _capture_exception(
         tb=tb,
         record=None,
         extra=extra,
+        celery=celery,
     )
 
 
@@ -591,6 +595,7 @@ def capture_exception_info(
     extra: dict[str, Any] | None = None,
     fingerprint: object = None,
     level: str = "error",
+    celery: dict[str, Any] | None = None,
 ) -> str | None:
     return _run_capture(
         lambda: _capture_exception(
@@ -601,6 +606,7 @@ def capture_exception_info(
             extra=extra,
             fingerprint_override=fingerprint,
             level=level,
+            celery=celery,
         )
     )
 
