@@ -88,3 +88,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   signal (behind `importlib.util.find_spec("celery")`, so a host without Celery installed is
   unaffected) and captures the failure with a `celery` context block (task name, task id,
   truncated `args`/`kwargs`) alongside the exception's own context.
+- PostgreSQL pass: `demo/docker-compose.yml` (a `postgres:16` service matching the CI `postgres`
+  job's DSN, pinned by a `tests/test_toolchain.py` contract test) plus `make pg-up`/`pg-down`/
+  `test-pg` (bring the container up, run the full suite under `DJANGO_DB=postgres`, always tear
+  down). The full suite, including the two-thread same-fingerprint race and the storage
+  `assertNumQueries` budgets, is green on PostgreSQL with no `storage.py`/`retention.py` savepoint
+  change needed — that discipline held since Phase 3. `admin_errors.writer.Writer._run()` now
+  closes its own database connection when the thread shuts down, not only after
+  `IDLE_CONNECTION_SECONDS` of subsequent idleness: `stop()` could exit the loop immediately after
+  a flush, leaking a real PostgreSQL server-side session until garbage collection happened to close
+  it, which surfaced as an intermittent `DROP DATABASE` failure at the end of a PostgreSQL test run.
+  New `tests/test_postgres.py`
+  (`postgres_only` fixture in `conftest.py`) asserts the two savepointed creates leave their outer
+  transaction usable after a swallowed `IntegrityError`, a JSONB payload round-trips non-ASCII and
+  emoji, and `context.sanitize_text()`/`context.sanitize_payload()` (new: replaces NUL with U+FFFD,
+  strips lone surrogates, applied recursively over every string value *and* key in the payload,
+  called once from `capture._build_and_store` after the `extra` merge and `BEFORE_SEND`, and to
+  `capture.py`'s `meta` strings) keep an exception message — or a query-param/header/`extra` key —
+  containing a NUL byte storable on PostgreSQL. `tests/test_storage.py` gained
+  `test_last_seen_never_moves_backwards`, pinning the `Greatest(F("last_seen"), ...)` contract on
+  both backends.

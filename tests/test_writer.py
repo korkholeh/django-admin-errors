@@ -307,6 +307,40 @@ def test_idle_connection_is_closed_after_the_idle_window(monkeypatch):
             w.stop()
 
 
+def test_stop_closes_the_writer_thread_connection_without_waiting_for_the_idle_window(monkeypatch):
+    """A connection opened by the thread's last `_flush()` must be closed by `stop()` itself, not
+    only by the idle-close branch inside the loop — `stop()` can observe an empty queue and set
+    `_shutdown` well before `IDLE_CONNECTION_SECONDS` elapses, and on PostgreSQL a connection left
+    open past the thread's own lifetime is a real server-side session (DECISIONS.md p06-implement/
+    T7): a batch of these accumulating across the suite once aborted pytest-django's end-of-run
+    `DROP DATABASE`."""
+    closed: list[str] = []
+
+    class _FakeConnection:
+        def close(self):
+            closed.append("default")
+
+    class _FakeConnections(dict):
+        def __getitem__(self, alias):
+            return _FakeConnection()
+
+    monkeypatch.setattr(writer, "IDLE_CONNECTION_SECONDS", 60)
+    monkeypatch.setattr(writer, "connections", _FakeConnections())
+
+    sink = _RecordingSink()
+    with override_settings(
+        ADMIN_ERRORS={"TRANSPORT": "sync", "FLUSH_BATCH_SIZE": 1000, "FLUSH_INTERVAL_SECONDS": 60}
+    ):
+        w = writer.Writer(sink=sink)
+        w.enqueue(_item("a"))
+        w.flush(timeout=2.0)
+        assert len(sink.calls) == 1
+
+        w.stop()
+
+    assert closed == ["default"]
+
+
 def test_idle_connection_close_failure_does_not_busy_spin(monkeypatch):
     class _BoomConnection:
         def close(self):
@@ -336,6 +370,51 @@ def test_idle_connection_close_failure_does_not_busy_spin(monkeypatch):
             time.sleep(0.4)
             assert writer.stats.batches_dropped <= 3
             assert writer.stats.last_error == "KeyError"
+        finally:
+            w.stop()
+
+
+def test_connection_is_still_closed_when_the_loop_dies_outside_its_inner_try(monkeypatch):
+    """`_time_to_next_flush` (like the `assert self._queue is not None` beside it) runs *before*
+    the loop's own inner `try/except` on every iteration, so a raise there — e.g. a bad host
+    `FLUSH_INTERVAL_SECONDS` setting once a batch is pending — kills the thread by a non-`break`
+    path that the plain post-loop `connections[...].close()` used to miss entirely (DECISIONS.md
+    p06-review_fix1/writer). The `finally` wrapping the whole loop must still close it."""
+    closed: list[str] = []
+
+    class _FakeConnection:
+        def close(self):
+            closed.append("default")
+
+    class _FakeConnections(dict):
+        def __getitem__(self, alias):
+            return _FakeConnection()
+
+    monkeypatch.setattr(writer, "connections", _FakeConnections())
+
+    original_time_to_next_flush = writer.Writer._time_to_next_flush
+    calls = {"n": 0}
+
+    def flaky_time_to_next_flush(self, batch_started, last_activity):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise TypeError("boom")
+        return original_time_to_next_flush(self, batch_started, last_activity)
+
+    monkeypatch.setattr(writer.Writer, "_time_to_next_flush", flaky_time_to_next_flush)
+
+    sink = _RecordingSink()
+    with override_settings(
+        ADMIN_ERRORS={"TRANSPORT": "sync", "FLUSH_BATCH_SIZE": 1000, "FLUSH_INTERVAL_SECONDS": 60}
+    ):
+        w = writer.Writer(sink=sink)
+        try:
+            w.enqueue(_item("a"))
+
+            deadline = time.monotonic() + 2.0
+            while not closed and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert closed == ["default"]
         finally:
             w.stop()
 

@@ -1,14 +1,14 @@
 # Autodev progress — django-admin-errors
 
 - **Status:** running
-- **Current:** phase 5/10 · step `commit`
+- **Current:** phase 6/10 · step `commit`
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260915-1213`
 - **Stack:** Python 3.10-3.13, Django 4.2/5.2/6.0/6.1, SQLite + PostgreSQL 13+, zero runtime deps beyond Django, hatchling src-layout wheel, pytest + pytest-django, ruff, tox, pytest-playwright for e2e · **Profile:** `django-htmx`
 - **Test command:** `uv run pytest -q` · **E2E:** `uv run --extra e2e pytest e2e -q`
-- **Usage:** 5h ? (reset 15.09 22:40) · 7d ?
-- **Totals:** 48 sessions · 3.9 h agent time · ≈$70.53 API-equivalent
-- **Clock:** 6.7 h since the run was created · 3.9 h working · 0.7 h paused on the usage limit · 2.1 h not running
-- **Updated:** 2026-09-15 18:53:53
+- **Usage:** 5h ? (reset 16.09 03:40) · 7d ?
+- **Totals:** 55 sessions · 4.5 h agent time · ≈$81.89 API-equivalent
+- **Clock:** 10.6 h since the run was created · 4.5 h working · 4.0 h paused on the usage limit · 2.1 h not running
+- **Updated:** 2026-09-15 22:47:45
 
 ## Phases
 
@@ -18,8 +18,8 @@
 | 2 | Settings proxy, models and fingerprint | no | ✅ done | f4d14b2 |  |
 | 3 | Capture pipeline and storage (sync transport) | no | ✅ done | e8e90a8 |  |
 | 4 | Background writer, sampling and signals | no | ✅ done | 8ebfccd |  |
-| 5 | Retention, commands, dedicated alias and Celery | no | 🔨 in_progress |  |  |
-| 6 | PostgreSQL pass | no | ⏳ pending |  |  |
+| 5 | Retention, commands, dedicated alias and Celery | no | ✅ done | a886f93 |  |
+| 6 | PostgreSQL pass | no | 🔨 in_progress |  |  |
 | 7 | Demo project | yes | ⏳ pending |  |  |
 | 8 | Admin UI | yes | ⏳ pending |  |  |
 | 9 | Notifications, status transitions and i18n | yes | ⏳ pending |  |  |
@@ -108,6 +108,18 @@
 - `2026-09-15 18:52:05` **p05-review2** — approve (5m, $2.12): All six REVIEW-r1 findings are fixed in the product, none rejected, each logged under `## p05-review_fix1` in DECISIONS.md. I re-ran the full gate: `uv run pytest -q` 201 passed / 2 skipped, `ruff check` + `ruff format --check`, `django check` and `makemigrations --check` clean, and `uv run tox -e …
 - `2026-09-15 18:53:53` **p05-docs** — done (1m, $0.58): Checked CLAUDE.md, .autodev/ARCHITECTURE.md, docs/dev/adr/0001 and 0006, CHANGELOG.md, README.md against the phase-5 diff (retention.py, routers.py, tasks.py, integrations/celery.py, the three management commands, checks E001/W002, writer.py's opportunistic cleanup, tests/settings.py's 'errors' ali…
 - `2026-09-15 18:53:53` **p05-docs** — no changes: the documentation was already true for this phase
+- `2026-09-15 18:53:53` **p05-commit** — done: a886f93
+- `2026-09-15 18:53:55` **push** — done: korkholeh/django-admin-errors@autodev/spec-20260915-1213 as korkholeh
+- `2026-09-15 18:59:32` **p06-plan** — done (5m, $1.94): Wrote .autodev/phases/06-postgres-pass/PLAN.md with Context/Design/11-task checklist/Verification table mapping every acceptance criterion to a named test/Risks/Out of scope, after reading storage.py, retention.py, models.py, tests/settings.py, conftest, tox.ini, ci.yml, the roadmap and risk rows. …
+- `2026-09-15 19:13:50` **p06-implement** — done (14m, $3.77): Phase 6 (PostgreSQL pass) complete, all 11 PLAN.md tasks checked off. Added demo/docker-compose.yml (postgres:16, healthcheck, named volume) and Makefile targets pg-up/pg-down/test-pg. Added a postgres_only conftest fixture, consolidating two prior inline vendor-skips onto it. First full PostgreSQL…
+- `2026-09-15 19:13:55` **p06-tests** — pass: exit 0: 206 passed, 7 skipped in 3.80s
+- `2026-09-15 19:17:29` **p06-review1** — changes_requested (3m, $1.38): Phase 6 does what it set out to do: I independently confirmed the full suite green on the phase's own `postgres:16` container (213 passed), the two-thread same-fingerprint race and all three `assertNumQueries` budgets running for real on PostgreSQL, `grep -rn "select_for_update(" src/` empty, `make…
+- `2026-09-15 19:23:19` **usage** — paused: 5h usage 90% ≥ 85%; sleeping until ≈15.09 22:42
+- `2026-09-15 22:42:00` **usage** — resumed: 5h ? (reset ?) · 7d ?
+- `2026-09-15 22:42:22` **p06-review_fix1** — done (6m, $2.27): Applied all review-r1 fixes for phase 6 (PostgreSQL pass). Fixed: - [MAJOR] sanitize_text missed dict keys → NUL in query-param name silently dropped capture on PostgreSQL. Fixed `_sanitize_walk` to sanitize string keys too; moved the walk from `build_payload()` to a new public `context.sanitize_pa…
+- `2026-09-15 22:42:26` **p06-tests** — pass: exit 0: 208 passed, 8 skipped, 1 warning in 3.74s
+- `2026-09-15 22:46:35` **p06-review2** — approve (4m, $1.58): Phase 6 delivers its goal and every acceptance criterion maps to something I re-ran myself: `make test-pg` green at 216 passed with 0 skipped (so the two-thread same-fingerprint race and all three `assertNumQueries` budgets really executed on PostgreSQL), container torn down with `docker ps` empty,…
+- `2026-09-15 22:47:45` **p06-docs** — done (1m, $0.42): Verified phase 6 docs against code. CLAUDE.md, Makefile, docs/spec.md, .autodev/ARCHITECTURE.md already true (test-pg/pg-up/pg-down, writer shutdown-close, savepoint discipline all match current code). Fixed two staleness spots: CHANGELOG.md's Unreleased entry said sanitization was "applied recursi…
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.

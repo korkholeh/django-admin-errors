@@ -102,3 +102,41 @@ def test_ci_defines_the_five_jobs(repo_root) -> None:
     jobs_block = text.split("\njobs:\n", 1)[1]
     job_names = re.findall(r"^  ([a-z][a-z0-9-]*):\n", jobs_block, re.MULTILINE)
     assert job_names == ["lint", "sqlite-matrix", "postgres", "celery", "package"]
+
+
+def test_postgres_dsn_contract_is_identical_across_compose_ci_and_settings(repo_root) -> None:
+    """`demo/docker-compose.yml`, the CI `postgres` job and `tests/settings.py:DEFAULT_PG_URL` must
+    all name the same target — otherwise "CI is verified against the same DSN contract" is a claim
+    no test can fail on (DECISIONS.md p06-plan/tests)."""
+    expected = {
+        "image": "postgres:16",
+        "user": "postgres",
+        "password": "postgres",
+        "db": "admin_errors_test",
+        "port": "5432",
+    }
+
+    compose_text = (repo_root / "demo" / "docker-compose.yml").read_text()
+    assert f"image: {expected['image']}" in compose_text
+    assert f"POSTGRES_USER: {expected['user']}" in compose_text
+    assert f"POSTGRES_PASSWORD: {expected['password']}" in compose_text
+    assert f"POSTGRES_DB: {expected['db']}" in compose_text
+    assert f'"{expected["port"]}:{expected["port"]}"' in compose_text
+
+    ci_text = (repo_root / ".github" / "workflows" / "ci.yml").read_text()
+    postgres_job = ci_text.split("\n  postgres:\n", 1)[1].split("\n  celery:\n", 1)[0]
+    assert f"image: {expected['image']}" in postgres_job
+    assert f"POSTGRES_USER: {expected['user']}" in postgres_job
+    assert f"POSTGRES_PASSWORD: {expected['password']}" in postgres_job
+    assert f"POSTGRES_DB: {expected['db']}" in postgres_job
+    assert f'"{expected["port"]}:{expected["port"]}"' in postgres_job
+    expected_dsn = (
+        f"postgres://{expected['user']}:{expected['password']}"
+        f"@localhost:{expected['port']}/{expected['db']}"
+    )
+    assert f"ADMIN_ERRORS_TEST_PG_URL: {expected_dsn}" in postgres_job
+
+    settings_text = (repo_root / "tests" / "settings.py").read_text()
+    match = re.search(r'DEFAULT_PG_URL = "([^"]+)"', settings_text)
+    assert match, "DEFAULT_PG_URL not found in tests/settings.py"
+    assert match.group(1) == expected_dsn

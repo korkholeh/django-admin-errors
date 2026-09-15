@@ -272,3 +272,129 @@ so `grep -n '^## '` is the index and a session can read only the part it needs.
 ## p05-docs
 
 - [p05-docs] No documentation edits needed — CLAUDE.md, ARCHITECTURE.md, ADR 0001 (dedicated alias) and ADR 0006 (retention rules) already state the router, checks E001/W002, the three management commands and the Celery integration accurately against the merged diff; CHANGELOG.md Unreleased entry matches the final (post-review-fix) command flags and behaviour — why: ADRs 0001/0006 were written at design time already describing this phase's implementation, and CLAUDE.md's command table only lists repo dev-workflow commands (pytest/ruff/tox), not product-facing manage.py subcommands, so no line changed — alternatives: none; verified by diffing docs against src/admin_errors/{checks.py,management/commands/errors_cleanup.py} and tests/settings.py.
+
+## p06-plan
+
+- [p06-plan/compose] `demo/docker-compose.yml` uses a named volume (`admin_errors_pgdata`), no `version:` key and no `container_name`, with a `pg_isready` healthcheck so `up -d --wait` can block until ready — why: Phase 7's `make demo-pg` reuses the same service and wants data to survive a restart; `--wait` replaces a hand-written polling loop and GNU make 3.81 cannot express one cleanly; omitting `container_name` lets a second checkout run its own copy — alternatives: `tmpfs` for speed (loses demo persistence, forces a second compose file in Phase 7), a polling loop in the Makefile (duplicates what the healthcheck already knows).
+- [p06-plan/makefile] `make test-pg` brings the container up, runs the suite and always tears it down, re-raising pytest's exit code (`st=$$?; $(MAKE) pg-down; exit $$st`); `pg-up`/`pg-down` exist separately for interactive debugging — why: the run's "never leave a background process behind" rule outranks leaving a container up after a red run, and the deliverable asks for no container left running; the two-target form keeps the debugging path available without an env flag — alternatives: leave the container running after `test-pg` (violates the teardown rule, and the orchestrator would carry it into Phase 7), tear down only on success (leaves exactly the failing case behind).
+- [p06-plan/context] The NUL/lone-surrogate sanitiser lands in `context.py` (`sanitize_text`, applied recursively in `build_payload` and to `capture.py`'s four `meta` strings), not in `storage.py` — why: PostgreSQL rejects a NUL codepoint in both `jsonb` and `text` while SQLite accepts it, and the raw-text paths (`str(exc)`, already-`str` header/GET/POST values, and `meta.title`/`culprit`/`exception_type`, which become `Issue` CharFields) bypass `safe_repr`'s escaping; ARCHITECTURE.md's module table makes `context.py` the owner of payload construction and `storage.py` a pure writer, and sanitising at the writer would leave the `meta`/CharField path unprotected — alternatives: sanitise in `storage._store_one` before the insert (misses `meta` unless duplicated, and puts string munging in the hot write path), sanitise inside `safe_repr` only (does not cover the three raw-text paths at all).
+- [p06-plan/tests] PostgreSQL-only cases live in a new `tests/test_postgres.py` gated by a `postgres_only` conftest fixture, rather than inline `connection.vendor` checks scattered across modules or a module-level `pytest.mark.skipif` — why: the vendor is only knowable after Django is configured, which happens after collection imports the module, so a module-level `skipif` cannot be evaluated; one fixture gives every PG skip the same reason string and lets the two existing inline skips (`test_commands.py`, `test_retention.py`) converge on it — alternatives: a custom `--postgres` pytest option (a second way to say what `DJANGO_DB` already says), duplicating each storage case with a PG variant in `test_storage.py` (doubles a module that already pins query budgets).
+- [p06-plan/tests] The two-thread race case and the three `assertNumQueries` budget cases are *not* duplicated into `tests/test_postgres.py`; they stay backend-agnostic and are proved on PostgreSQL simply by the `DJANGO_DB=postgres` run — why: two of the acceptance criteria explicitly ask that the existing cases hold on both backends, which a duplicate would not show; the PG-only file is reserved for assertions SQLite structurally cannot make (an outer transaction still usable after a swallowed `IntegrityError`) — alternatives: PG-specific copies with wider query bounds (would hide a real per-backend query regression behind a looser bound).
+- [p06-plan/tests] The DSN contract (`postgres:16`, `postgres`/`postgres`, `admin_errors_test`, port 5432) is pinned by a stdlib-only text-scraping case in `tests/test_toolchain.py` across `demo/docker-compose.yml`, `.github/workflows/ci.yml` and `tests/settings.py:DEFAULT_PG_URL` — why: "the CI postgres job is verified against the same URL contract" is otherwise a claim no test can fail on, and CI is the one target this repo cannot run locally; `test_toolchain.py` already scrapes `ci.yml` with regexes to avoid a PyYAML dependency — alternatives: add PyYAML as a dev dependency to parse both files properly (a new dev dep for two assertions), run `act` locally (heavy, needs network and Docker images).
+
+## p06-implement
+
+
+- [p06-implement/T4] First full PostgreSQL run, before writing any PG-specific test, was clean: `make
+  pg-up` then `DJANGO_DB=postgres ADMIN_ERRORS_TEST_PG_URL=postgres://postgres:postgres@localhost:5432/admin_errors_test
+  uv run --extra postgres pytest -q` → `203 passed in 4.60s` (0 skipped — the two `postgres_only`-gated
+  cases run for real here; the SQLite run skips them, 201 passed/2 skipped) — why noted: the plan
+  expected the savepoint discipline honoured since Phase 3 to hold, and it does; no `storage.py` /
+  `retention.py` / `models.py` defect surfaced, so T7 closes with this same output as its evidence —
+  alternatives: none, this is a measurement not a decision.
+
+- [p06-implement/T7] `Writer._run()` closed its own PostgreSQL connection only via the idle-close
+  branch (`IDLE_CONNECTION_SECONDS`, default 60s) inside the loop, never on shutdown — `stop()` sets
+  `_shutdown` and the loop's `if self._shutdown.is_set() and not aggregates: break` exits immediately
+  after the last flush, well before the idle deadline, so the connection opened by that flush was
+  never explicitly closed. Not visible with the T4 snapshot's test count/timing, but reproduced
+  deterministically once `tests/test_postgres.py`/`test_context.py`/`test_storage.py`/
+  `test_toolchain.py` (this phase's new tests) lengthened the run: `DJANGO_DB=postgres ... pytest -q`
+  emitted `PytestWarning: Error when trying to teardown test databases: OperationalError('database
+  "test_admin_errors_test" is being accessed by other users\nDETAIL:  There is 1 other session using
+  the database.')` on 2/2 runs; bisected by `--ignore` (dropping either `test_postgres.py` or
+  `test_writer.py` made it disappear) to a writer-thread connection surviving past `stop()` — a real
+  leaked PostgreSQL server-side session, not merely a slow GC on SQLite. Fixed by closing
+  `connections[conf.DATABASE]` unconditionally once `_run()`'s loop exits, mirroring the idle-close
+  branch's own `try/except`. Regression test
+  `test_writer.py::test_stop_closes_the_writer_thread_connection_without_waiting_for_the_idle_window`
+  (a fake `connections[...]` with `IDLE_CONNECTION_SECONDS` pinned high so only the shutdown-path
+  close can pass it) fails on the pre-fix code (`assert [] == ['default']`) and passes after; full
+  suite re-verified clean 3/3 runs on PostgreSQL after the fix (212 passed, no warnings each time) —
+  why: this is exactly risk #5 ("PostgreSQL-only defects land late") in the mitigation this phase
+  exists to run, so despite living in `writer.py` rather than `storage.py`/`retention.py`/`models.py`
+  it belongs to T7, not a follow-up phase — alternatives: close the connection from `stop()` on the
+  calling thread instead (Django's `connections` is thread-local, so that would close a different
+  connection object than the one the writer thread actually opened), rely on Python's GC to eventually
+  close the wrapped socket (non-deterministic, and the exact failure mode observed: a `DROP DATABASE`
+  racing a not-yet-collected session).
+
+- [p06-implement/T11] The plan's verification grep (`grep -rn "select_for_update" src/ ; echo
+  "exit=$?"`, expecting exit=1/no matches) actually returns one hit: `src/admin_errors/storage.py:6`,
+  the module docstring's own sentence "No `select_for_update` anywhere" — pre-existing since Phase 4
+  (`git show 8ebfccd:src/admin_errors/storage.py`), not new to this phase. `grep -rn
+  "select_for_update(" src/` (the call form) returns no matches, confirming there is no actual usage —
+  the plan's literal string match just also matches its own negation in prose — why noted: recording
+  the exact command/output per the run's rule against unfounded environment/limitation claims, not a
+  product change.
+
+
+## p06-review_fix1
+
+
+- [p06-review_fix1/context] REVIEW-r1.md MAJOR: `_sanitize_walk` sanitized dict *values* but not
+  *keys*, so a NUL in a query-param/header/cookie *name* (or an `extra=` key) reached PostgreSQL's
+  `jsonb` untouched and aborted the whole write inside the pipeline's own `try/except BaseException`
+  — reproduced on the phase's own container before the fix (`rf.get('/x/?bad%00key=1')` ->
+  `fp=None`, `Issue.objects.count()==0`). Fixed `_sanitize_walk` to sanitize string keys too, and
+  moved the walk out of `build_payload()` (which only ever saw the pre-`extra`/pre-`BEFORE_SEND`
+  payload) to a new public `context.sanitize_payload()`, called once, late, at the end of
+  `capture._build_and_store` — after the `extra` merge, `_apply_before_send` and `_enforce_size`,
+  right before `_dispatch` — so every path into the stored payload is covered exactly once. Added
+  `tests/test_postgres.py::test_exception_with_nul_in_query_param_name_is_stored_on_postgresql`
+  (fails pre-fix with the exact symptom above) and
+  `tests/test_capture.py::test_capture_message_sanitizes_nul_in_extra_key` (backend-agnostic,
+  covers the `extra`-key hole specifically); replaced the now-inaccurate
+  `test_context.py::test_build_payload_sanitizes_nul_recursively_through_nested_request_query`
+  (asserted behaviour `build_payload()` no longer has) with a direct unit test of
+  `sanitize_payload()`'s recursion over nested dict/list values and keys — why: the finding was
+  correct and reproducible, the fix location follows its own "single call site" reasoning —
+  alternatives: sanitize at `storage.py` (rejected in PLAN.md's own Design section: would leave the
+  `meta`/`Issue`-field path unprotected, and this phase's fix is a straight extension of that
+  reasoning, not a new decision).
+
+- [p06-review_fix1/writer] REVIEW-r1.md MINOR: the T7 shutdown close
+  (`connections[conf.DATABASE].close()`) sat after `while True: ...`, not in a `finally` wrapping it,
+  so the two statements each iteration runs outside the loop's own inner `try` (`assert self._queue
+  is not None`, and `_time_to_next_flush(...)` reading `conf.FLUSH_INTERVAL_SECONDS`) could still kill
+  the thread by a non-`break` path and skip the close — reproducing the exact leaked PostgreSQL
+  session T7 fixed. Wrapped the whole `while True:` loop in `try: ... finally: connections[conf.
+  DATABASE].close()` (swallowing the close's own exception into `stats.last_error`, same as before).
+  Regression test `test_writer.py::test_connection_is_still_closed_when_the_loop_dies_outside_its_
+  inner_try` monkeypatches `Writer._time_to_next_flush` to raise on its second call (simulating a bad
+  `FLUSH_INTERVAL_SECONDS` host setting without depending on exactly which arithmetic op raises where)
+  and asserts the fake connection is still closed; fails on the pre-fix code (`assert [] ==
+  ['default']`) and passes after. The test's writer thread dies with an unhandled `TypeError` by
+  design (that *is* the bug being exercised) and pytest logs a
+  `PytestUnhandledThreadExceptionWarning` for it — not suppressed, since the project has no
+  `filterwarnings`/`-W error` gate and the warning is the honest, expected byproduct of the exact
+  failure mode under test, not test pollution — why: matches the finding exactly, verified against
+  the phase's own PostgreSQL container (`make test-pg`: 216 passed, container torn down, `docker ps`
+  clean) as well as SQLite — alternatives: only wrap the inner statements individually in their own
+  try/except (rejected: duplicates the exact bug pattern the finding flagged, one per future
+  statement added above the inner try, instead of one structural guarantee).
+
+- [p06-review_fix1/build] REVIEW-r1.md MINOR: `make test-pg`'s `@$(MAKE) pg-up; ...` discarded
+  `pg-up`'s exit status via `;`, so a `docker compose up -d --wait` failure (e.g. port 5432 already
+  held by an operator's own PostgreSQL) would silently fall through to running the suite against
+  whatever is listening there. Changed to `@$(MAKE) pg-up && { ...; st=$$?; $(MAKE) pg-down; exit
+  $$st; }` so a `pg-up` failure now short-circuits the whole target before pytest or `pg-down` ever
+  run — why: matches PLAN.md's own Risks §20 hazard (a), verified by rerunning `make test-pg`
+  end-to-end (216 passed, `docker ps` clean after) — alternatives: none, this is the plan's own
+  prescribed fix.
+
+- [p06-review_fix1/docs] REVIEW-r1.md MINOR: PLAN.md's T10 said "T7 changed no behaviour, so
+  ARCHITECTURE.md is untouched", but T7 did change runtime behaviour (the writer thread now closes
+  its connection unconditionally on stop, not only after the 60s idle window); ARCHITECTURE.md's
+  dependency-failure table and spec.md's connection-hygiene bullet both still described only the
+  idle-only rule. Extended both with "...and once the writer thread stops" / "...and unconditionally
+  once the writer thread stops", and corrected the T10 note in PLAN.md itself — why: matches the
+  finding, no test possible for a docs-accuracy fix — alternatives: none.
+
+- [p06-review_fix1/nit] REVIEW-r1.md NIT: `tests/test_postgres.py`'s module docstring cited "Phase 6,
+  spec section 11.3" (Dedicated database alias, unrelated); repointed to spec section 3
+  ("Compatibility and constraints"), which is where "Databases: SQLite >= 3.9 (JSON1); PostgreSQL >=
+  13. Tests run on both." actually lives — why: matches the finding — alternatives: drop the citation
+  entirely (rejected, a correct pointer is more useful than none).
+
+

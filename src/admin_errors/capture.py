@@ -392,11 +392,11 @@ def _build_and_store(
     celery: dict[str, Any] | None = None,
 ) -> str | None:
     meta = {
-        "exception_type": exception_type,
-        "title": title,
-        "culprit": culprit,
+        "exception_type": context.sanitize_text(exception_type),
+        "title": context.sanitize_text(title),
+        "culprit": context.sanitize_text(culprit),
         "level": level,
-        "logger": logger_name,
+        "logger": context.sanitize_text(logger_name),
     }
     timestamp = timezone.now()
 
@@ -433,6 +433,10 @@ def _build_and_store(
     if payload is None:
         return None
     payload = _enforce_size(payload)
+    # Late and once: after the `extra` merge and `BEFORE_SEND` have both had a chance to add
+    # host-supplied strings, so every path into the stored payload is scrubbed, not just the
+    # one `build_payload()` assembles (see DECISIONS.md p06-review_fix1/context).
+    payload = context.sanitize_payload(payload)
     return _dispatch(fp, meta, timestamp, payload)
 
 

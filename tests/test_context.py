@@ -159,3 +159,26 @@ def test_chained_exceptions_produce_chain_entries(rf):
     assert [node["type"] for node in block["chain"]] == ["RuntimeError", "ValueError"]
     assert block["chain"][0]["cause"] is True
     assert block["type"] == "RuntimeError"
+
+
+def test_sanitize_text_replaces_nul_and_lone_surrogates_leaves_ordinary_text_alone():
+    assert context.sanitize_text("boom\x00message") == "boom�message"
+    assert context.sanitize_text("lone \ud800 surrogate") == "lone � surrogate"
+    assert context.sanitize_text("plain text 💥 з non-ASCII") == "plain text 💥 з non-ASCII"
+
+
+def test_sanitize_payload_recurses_through_nested_dicts_lists_and_keys():
+    """`sanitize_payload` is applied once, late, by `capture._build_and_store` — after the `extra`
+    merge and `BEFORE_SEND` (DECISIONS.md p06-review_fix1/context) — so this exercises the walk
+    itself: values *and* keys, at any nesting depth. A NUL in a dict *key* (e.g. a query-param
+    name) is the case that regressed silently: only values used to be sanitized."""
+    payload = {
+        "message": "top-level\x00message",
+        "request": {"query": {"bad\x00key": "boom\x00end", "ok": ["a\x00b", "c"]}},
+    }
+
+    sanitized = context.sanitize_payload(payload)
+
+    assert sanitized["message"] == "top-level�message"
+    assert sanitized["request"]["query"]["bad�key"] == "boom�end"
+    assert sanitized["request"]["query"]["ok"] == ["a�b", "c"]

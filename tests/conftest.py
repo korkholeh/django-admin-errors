@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from django.core.management import call_command
-from django.db import connections
+from django.db import connection, connections
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.test import override_settings
 
@@ -14,6 +14,17 @@ from django.test import override_settings
 @pytest.fixture
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture
+def postgres_only() -> None:
+    """Skip unless the default alias is PostgreSQL (`DJANGO_DB=postgres`).
+
+    The vendor is only knowable after Django is configured, which happens after collection
+    imports the test module, so a module-level `skipif` cannot express this.
+    """
+    if connection.vendor != "postgresql":
+        pytest.skip("only meaningful under DJANGO_DB=postgres")
 
 
 def _allow_alias_in_active_test_case(alias: str) -> None:

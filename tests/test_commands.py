@@ -113,11 +113,7 @@ def test_errors_stats_unknown_database_raises_command_error():
         call_command("errors_stats", "--database", "not-a-real-alias")
 
 
-def test_errors_stats_approximate_size_on_postgresql():
-    from django.db import connection
-
-    if connection.vendor != "postgresql":
-        pytest.skip("only meaningful under DJANGO_DB=postgres")
+def test_errors_stats_approximate_size_on_postgresql(postgres_only):
     _issue(status=Issue.Status.OPEN)
     output = _call("errors_stats")
     assert "approximate size:" in output

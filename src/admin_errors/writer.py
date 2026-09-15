@@ -126,77 +126,96 @@ class Writer:
         batch_started: float | None = None
         last_activity = time.monotonic()
 
-        while True:
-            assert self._queue is not None
-            timeout = self._time_to_next_flush(batch_started, last_activity)
-            try:
-                item: object | None = self._queue.get(timeout=timeout)
-            except queue.Empty:
-                item = None
+        try:
+            while True:
+                assert self._queue is not None
+                timeout = self._time_to_next_flush(batch_started, last_activity)
+                try:
+                    item: object | None = self._queue.get(timeout=timeout)
+                except queue.Empty:
+                    item = None
 
-            # A raise anywhere below (a bad setting turning `EVENTS_PER_ISSUE` comparisons into a
-            # `TypeError`, a broken `connections[...].close()`) must not kill the thread and
-            # silently drop everything accumulated so far — count it and keep looping. `_flush`
-            # already has its own narrower handling for sink failures.
-            pending_requests: list[threading.Event] = []
-            try:
-                woke = item is _WAKE
-                if item is not None and not woke:
-                    _aggregate_item(aggregates, item)  # type: ignore[arg-type]
-                    items_in_batch += 1
-                    if batch_started is None:
-                        batch_started = time.monotonic()
+                # A raise anywhere below (a bad setting turning `EVENTS_PER_ISSUE` comparisons
+                # into a `TypeError`, a broken `connections[...].close()`) must not kill the
+                # thread and silently drop everything accumulated so far — count it and keep
+                # looping. `_flush` already has its own narrower handling for sink failures.
+                pending_requests: list[threading.Event] = []
+                try:
+                    woke = item is _WAKE
+                    if item is not None and not woke:
+                        _aggregate_item(aggregates, item)  # type: ignore[arg-type]
+                        items_in_batch += 1
+                        if batch_started is None:
+                            batch_started = time.monotonic()
 
-                # A flush request is only paired with a `_WAKE` put onto this same (FIFO) queue,
-                # so every item enqueued before `flush()` was called is guaranteed to have already
-                # been aggregated by the time `_WAKE` is dequeued. Grabbing `_flush_requests` on
-                # every loop iteration instead (rather than gating on `woke`/a size-or-interval
-                # flush) would let a request appended concurrently short-circuit a batch that is
-                # still being drained.
-                provisional_flush = bool(aggregates) and (
-                    items_in_batch >= conf.FLUSH_BATCH_SIZE
-                    or (
-                        batch_started is not None
-                        and time.monotonic() - batch_started >= conf.FLUSH_INTERVAL_SECONDS
+                    # A flush request is only paired with a `_WAKE` put onto this same (FIFO)
+                    # queue, so every item enqueued before `flush()` was called is guaranteed to
+                    # have already been aggregated by the time `_WAKE` is dequeued. Grabbing
+                    # `_flush_requests` on every loop iteration instead (rather than gating on
+                    # `woke`/a size-or-interval flush) would let a request appended concurrently
+                    # short-circuit a batch that is still being drained.
+                    provisional_flush = bool(aggregates) and (
+                        items_in_batch >= conf.FLUSH_BATCH_SIZE
+                        or (
+                            batch_started is not None
+                            and time.monotonic() - batch_started >= conf.FLUSH_INTERVAL_SECONDS
+                        )
                     )
-                )
-                if provisional_flush or woke:
-                    with self._lock:
-                        pending_requests = self._flush_requests
-                        self._flush_requests = []
+                    if provisional_flush or woke:
+                        with self._lock:
+                            pending_requests = self._flush_requests
+                            self._flush_requests = []
 
-                should_flush = provisional_flush or woke
+                    should_flush = provisional_flush or woke
 
-                if should_flush and aggregates:
-                    batch, aggregates = aggregates, {}
+                    if should_flush and aggregates:
+                        batch, aggregates = aggregates, {}
+                        items_in_batch = 0
+                        batch_started = None
+                        self._flush(batch)
+                        self._maybe_cleanup()
+                        last_activity = time.monotonic()
+
+                    if (
+                        not aggregates
+                        and time.monotonic() - last_activity >= IDLE_CONNECTION_SECONDS
+                    ):
+                        # Advance the idle clock whether or not the close succeeds: a repeatedly
+                        # failing close must not pin `last_activity` in the past, which would
+                        # make `_time_to_next_flush` return 0 forever and busy-spin the loop.
+                        try:
+                            connections[conf.DATABASE].close()
+                        except Exception as exc:
+                            stats.last_error = type(exc).__name__
+                        finally:
+                            last_activity = time.monotonic()
+                except Exception as exc:
+                    stats.batches_dropped += 1
+                    stats.last_error = type(exc).__name__
+                    aggregates = {}
                     items_in_batch = 0
                     batch_started = None
-                    self._flush(batch)
-                    self._maybe_cleanup()
-                    last_activity = time.monotonic()
+                finally:
+                    for event in pending_requests:
+                        event.set()
 
-                if not aggregates and time.monotonic() - last_activity >= IDLE_CONNECTION_SECONDS:
-                    # Advance the idle clock whether or not the close succeeds: a repeatedly
-                    # failing close must not pin `last_activity` in the past, which would make
-                    # `_time_to_next_flush` return 0 forever and busy-spin the loop.
-                    try:
-                        connections[conf.DATABASE].close()
-                    except Exception as exc:
-                        stats.last_error = type(exc).__name__
-                    finally:
-                        last_activity = time.monotonic()
+                if self._shutdown.is_set() and not aggregates:
+                    break
+        finally:
+            # `stop()` can observe an empty queue and `_shutdown` set well before the idle-close
+            # branch above would ever fire, so a connection opened by this thread's last
+            # `_flush()` would otherwise survive the thread itself — on PostgreSQL that is a real
+            # server-side session, not reclaimed until the wrapper object happens to be garbage-
+            # collected, and one left open at the wrong moment aborts pytest-django's end-of-run
+            # `DROP DATABASE` (see DECISIONS.md p06-implement/T7). This `finally` wraps the whole
+            # loop, not just its body, so the two statements that used to run outside the inner
+            # `try` (the `assert` above, and `_time_to_next_flush` reading a bad
+            # `FLUSH_INTERVAL_SECONDS` setting) can no longer kill the thread without also closing
+            # the connection (see DECISIONS.md p06-review_fix1/writer).
+            try:
+                connections[conf.DATABASE].close()
             except Exception as exc:
-                stats.batches_dropped += 1
                 stats.last_error = type(exc).__name__
-                aggregates = {}
-                items_in_batch = 0
-                batch_started = None
-            finally:
-                for event in pending_requests:
-                    event.set()
-
-            if self._shutdown.is_set() and not aggregates:
-                break
 
     def _time_to_next_flush(
         self, batch_started: float | None, last_activity: float

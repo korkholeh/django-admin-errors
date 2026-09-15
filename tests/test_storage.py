@@ -82,6 +82,27 @@ def test_first_seen_is_unchanged_on_update():
     assert issue.first_seen == agg1.first_ts
 
 
+def test_last_seen_never_moves_backwards():
+    """`_update_counters` uses `Greatest(F("last_seen"), aggregate.last_ts)` rather than a plain
+    assignment: a late-arriving batch (e.g. a writer-thread flush delayed behind a newer one) must
+    not rewind `last_seen`. This is the one place a "portable" rewrite of that expression across
+    backends would silently regress (DECISIONS.md p06-plan)."""
+    agg_newer = _agg()
+    storage.store_batch({"fp-last-seen": agg_newer})
+    earlier = agg_newer.first_ts - dt.timedelta(hours=1)
+    agg_older = _agg(
+        _now=earlier,
+        samples=[(earlier, {"v": 1, "message": "stale"})],
+        dates={earlier.astimezone(dt.timezone.utc).date(): 1},
+    )
+
+    storage.store_batch({"fp-last-seen": agg_older})
+
+    issue = Issue.objects.get(fingerprint="fp-last-seen")
+    assert issue.last_seen == agg_newer.first_ts
+    assert issue.count == 2
+
+
 def test_event_ring_buffer_keeps_the_newest_events_per_issue():
     base = timezone.now()
     samples = [(base + dt.timedelta(seconds=i), {"v": 1, "message": f"e{i}"}) for i in range(5)]

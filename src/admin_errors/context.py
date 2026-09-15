@@ -84,6 +84,44 @@ def get_current_request() -> HttpRequest | None:
     return _current_request.get()
 
 
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def sanitize_text(text: str) -> str:
+    """Strip codepoints PostgreSQL's `text`/`jsonb` reject that SQLite stores happily.
+
+    A NUL codepoint is rejected by both `jsonb` ("unsupported Unicode escape sequence") and `text`
+    (psycopg: "a string literal cannot contain NUL (0x00) characters"); an unpaired surrogate
+    cannot even be UTF-8 encoded for the wire. Most payload strings go through `safe_repr`, whose
+    `repr()` already escapes both — this covers the raw-text paths that don't: `str(exc)`, header/
+    GET/POST values that are already `str`, and the `meta` strings that become `Issue` CharFields.
+    """
+    return _LONE_SURROGATE.sub("�", text.replace("\x00", "�"))
+
+
+def _sanitize_walk(value: Any) -> Any:
+    if isinstance(value, str):
+        return sanitize_text(value)
+    if isinstance(value, dict):
+        return {
+            (sanitize_text(key) if isinstance(key, str) else key): _sanitize_walk(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_sanitize_walk(item) for item in value]
+    return value
+
+
+def sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Recursively applies `sanitize_text` to every string in `payload`, keys included.
+
+    Called once, late, in `capture._build_and_store` — after the `extra` merge and
+    `BEFORE_SEND` have had their say — so every path into the stored payload is covered,
+    not just the one `build_payload()` assembles.
+    """
+    return _sanitize_walk(payload)
+
+
 def safe_repr(value: object, *, limit: int) -> str:
     """`repr()` that can never raise. Falls back to a fixed string, truncates to `limit`."""
     try:
@@ -444,5 +482,7 @@ __all__: Sequence[str] = (
     "get_current_request",
     "is_in_app",
     "safe_repr",
+    "sanitize_payload",
+    "sanitize_text",
     "select_culprit",
 )

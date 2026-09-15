@@ -2,8 +2,9 @@ SHELL := /bin/sh
 
 READY_URL := http://127.0.0.1:8000/admin/login/
 PIDFILE := .autodev/e2e-server.pid
+ADMIN_ERRORS_TEST_PG_URL ?= postgres://postgres:postgres@localhost:5432/admin_errors_test
 
-.PHONY: e2e-up e2e-down test test-pg lint build demo demo-pg
+.PHONY: e2e-up e2e-down test test-pg pg-up pg-down lint build demo demo-pg
 
 e2e-up:
 	@test -f demo/manage.py || { echo "e2e: demo/ not present yet, skipping"; exit 0; }; \
@@ -26,8 +27,17 @@ e2e-down:
 test:
 	uv run pytest -q
 
+pg-up:
+	docker compose -f demo/docker-compose.yml up -d --wait
+
+pg-down:
+	docker compose -f demo/docker-compose.yml down
+
 test-pg:
-	DJANGO_DB=postgres uv run pytest -q
+	@$(MAKE) pg-up && { \
+		DJANGO_DB=postgres ADMIN_ERRORS_TEST_PG_URL=$(ADMIN_ERRORS_TEST_PG_URL) uv run pytest -q; \
+		st=$$?; $(MAKE) pg-down; exit $$st; \
+	}
 
 lint:
 	uv run ruff check . && uv run ruff format --check . \

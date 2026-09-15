@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: admin_errors_test
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d admin_errors_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes: [admin_errors_pgdata:/var/lib/postgresql/data]
+volumes:
+  admin_errors_pgdata:

@@ -97,6 +97,19 @@ def test_capture_message_stores_source_message_and_extra():
     assert event.payload["extra"]["order_id"] == "42"
 
 
+def test_capture_message_sanitizes_nul_in_extra_key():
+    """A NUL in an `extra` key reaches the stored payload after the merge in `_build_and_store`,
+    past the point `build_payload()` used to sanitize alone — the late, once-only
+    `context.sanitize_payload` call must still catch it (DECISIONS.md p06-review_fix1/context)."""
+    fp = api.capture_message("hello", extra={"bad\x00key": "value"})
+
+    assert fp is not None
+    issue = Issue.objects.get(fingerprint=fp)
+    event = Event.objects.get(issue=issue)
+    assert "bad�key" in event.payload["extra"]
+    assert not any("\x00" in key for key in event.payload["extra"])
+
+
 def test_capture_exception_with_no_active_exception_returns_none():
     assert api.capture_exception() is None
     assert Issue.objects.count() == 0

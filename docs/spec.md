@@ -404,7 +404,8 @@ it is a breaking change (issues would duplicate).
   reached, or when `flush()` is requested. Count-only items only increment `count`.
 - **Overflow**: `put_nowait` failure → drop the item and increment `stats.dropped_queue_full`.
 - **Connection hygiene**: `close_old_connections()` before each flush; after a flush, `connections[alias].close()`
-  if the thread has been idle for more than 60 s (do not hold an idle connection open forever).
+  if the thread has been idle for more than 60 s (do not hold an idle connection open forever), and
+  unconditionally once the writer thread stops, so no connection outlives the thread that opened it.
 - **Failure handling**: any exception in `sink` is swallowed. `OperationalError` (e.g. SQLite
   `database is locked`) → one retry after 100 ms, then drop the batch. Never re-enqueue.
 - **Shutdown**: `atexit` → `flush(timeout=2.0)`. `flush()` uses a `threading.Event` per request and

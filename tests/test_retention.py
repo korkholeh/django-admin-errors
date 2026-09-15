@@ -279,11 +279,7 @@ def test_full_vacuum_rewrites_and_database_still_usable(sqlite_alias, auto_vacuu
     assert Issue.objects.using(alias).count() == 0
 
 
-def test_vacuum_is_a_noop_on_postgresql():
-    from django.db import connection
-
-    if connection.vendor != "postgresql":
-        pytest.skip("only meaningful under DJANGO_DB=postgres")
+def test_vacuum_is_a_noop_on_postgresql(postgres_only):
     with _frozen_now():
         report = retention.run_cleanup(vacuum=True)
     assert report.vacuum is None
