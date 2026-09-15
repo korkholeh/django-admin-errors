@@ -22,3 +22,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`0001_initial`), with the `view_issue_context` permission.
 - `admin_errors.fingerprint`: the frozen sha1 grouping algorithm for exceptions, message-only log
   records and explicit overrides, pinned by golden-value tests (ADR 0003).
+- Synchronous capture pipeline (spec section 7.2): `admin_errors.context` builds the scrubbed
+  event payload (frames, request block, chained exceptions) entirely through Django's own
+  `get_exception_reporter_filter`; `admin_errors.capture` is the single chokepoint (guards,
+  fingerprinting, `BEFORE_SEND`, `MAX_PAYLOAD_BYTES` degradation) and never raises or recurses;
+  `admin_errors.storage.store_batch` writes issues, events and daily counts with PostgreSQL-safe
+  savepointed creates. POST fields are cleansed by key (not only by `@sensitive_post_parameters`)
+  and `Authorization`/`Proxy-Authorization`-style headers are redacted the same way on every
+  supported Django version, including 4.2.
+- Public API `admin_errors.api.capture_exception`/`capture_message`/`flush` (ADR 0008),
+  `admin_errors.handlers.AdminErrorsHandler` (installed on the root logger from `ready()` when
+  `AUTO_INSTALL_LOGGING_HANDLER`), `admin_errors.middleware.RequestContextMiddleware` (optional,
+  sync/async capable) and the `got_request_exception` marker receiver. When `CAPTURE_LEVEL` is set
+  below the host's root logger level (e.g. `"INFO"` or `"DEBUG"`), `ready()` lowers the root
+  logger itself so those records actually reach the handler; this also makes them propagate to
+  any other handler already attached to the root logger (console, file, aggregator). Hosts that
+  want to keep their own handlers quiet at the default level should raise the level on those
+  handlers instead of relying on the root logger's level.

@@ -66,9 +66,7 @@ TEMPLATES = [
     },
 ]
 
-# No views yet in this phase; the admin needs a resolvable ROOT_URLCONF.
-ROOT_URLCONF = "tests.settings"
-urlpatterns: list = []
+ROOT_URLCONF = "tests.urls"
 
 USE_TZ = True
 TIME_ZONE = "UTC"

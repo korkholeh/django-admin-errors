@@ -1,22 +1,22 @@
 # Autodev progress — django-admin-errors
 
 - **Status:** running
-- **Current:** phase 2/10 · step `commit`
+- **Current:** phase 3/10 · step `commit`
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260915-1213`
 - **Stack:** Python 3.10-3.13, Django 4.2/5.2/6.0/6.1, SQLite + PostgreSQL 13+, zero runtime deps beyond Django, hatchling src-layout wheel, pytest + pytest-django, ruff, tox, pytest-playwright for e2e · **Profile:** `django-htmx`
 - **Test command:** `uv run pytest -q` · **E2E:** `uv run --extra e2e pytest e2e -q`
 - **Usage:** 5h ? (reset 15.09 17:40) · 7d ?
-- **Totals:** 18 sessions · 1.2 h agent time · ≈$21.99 API-equivalent
-- **Clock:** 1.2 h since the run was created · 1.2 h working · 0.0 h paused on the usage limit · 0.0 h not running
-- **Updated:** 2026-09-15 13:25:40
+- **Totals:** 28 sessions · 2.2 h agent time · ≈$38.81 API-equivalent
+- **Clock:** 2.2 h since the run was created · 2.2 h working · 0.0 h paused on the usage limit · 0.0 h not running
+- **Updated:** 2026-09-15 14:25:15
 
 ## Phases
 
 | # | Phase | User-facing | Status | Commit | Warnings |
 |---|---|---|---|---|---|
 | 1 | Scaffold and toolchain | no | ✅ done | cc03ee9 |  |
-| 2 | Settings proxy, models and fingerprint | no | 🔨 in_progress |  |  |
-| 3 | Capture pipeline and storage (sync transport) | no | ⏳ pending |  |  |
+| 2 | Settings proxy, models and fingerprint | no | ✅ done | f4d14b2 |  |
+| 3 | Capture pipeline and storage (sync transport) | no | 🔨 in_progress |  |  |
 | 4 | Background writer, sampling and signals | no | ⏳ pending |  |  |
 | 5 | Retention, commands, dedicated alias and Celery | no | ⏳ pending |  |  |
 | 6 | PostgreSQL pass | no | ⏳ pending |  |  |
@@ -57,6 +57,23 @@
 - `2026-09-15 13:22:19` **p02-tests** — pass: exit 0: 63 passed in 0.14s
 - `2026-09-15 13:24:11` **p02-review_audit2** — approve (1m, $0.63): Both majors, both minors and the nit from REVIEW-r2 are genuinely fixed in the product by this diff, each with a test that fails without the fix. Verified independently: `ruff check .` and `ruff format --check .` both exit 0 (the previously red gate is green — 32 files formatted, and no .py exists …
 - `2026-09-15 13:25:40` **p02-docs** — done (1m, $0.38): Checked docs against phase-2 diff (conf.py, checks.py, models.py, fingerprint.py, migration). CLAUDE.md, README.md and CHANGELOG.md already true (no command changes this phase; fingerprint/migration pitfalls already noted). Only fix: docs/dev/adr/0003-fingerprint-is-a-frozen-public-contract.md desc…
+- `2026-09-15 13:25:40` **commit** — command files: this commit changes what the project's own commands run: pyproject.toml
+- `2026-09-15 13:25:40` **p02-commit** — done: f4d14b2
+- `2026-09-15 13:25:42` **push** — done: korkholeh/django-admin-errors@autodev/spec-20260915-1213 as korkholeh
+- `2026-09-15 13:30:30` **p03-plan** — done (4m, $1.84): Wrote .autodev/phases/03-capture-and-storage/PLAN.md with Context, Design (module contracts for context/capture/api/handlers/middleware/signals/storage, error handling, test-host changes), 12 ordered tasks with tests as tasks, a Verification table mapping all 22 acceptance criteria to named tests, …
+- `2026-09-15 13:46:09` **p03-implement** — handover: context reached 200,279 tokens — checkpointing for a fresh session
+- `2026-09-15 13:47:38` **p03-implement** — partial (17m, $4.02): Built context.py (payload/scrubbing), storage.py (store_batch, spec §9.2), capture.py (guard/fingerprint/size-degradation pipeline), api.py/handlers.py/middleware.py/signals.py plus apps.py wiring, and the test host (tests/views.py, tests/urls.py). T1-T9 done, T4 (test_context.py, 14 tests) and T8 …
+- `2026-09-15 13:53:29` **p03-implement** — done (5m, $1.46): Finished phase 3 (T10-T12): added tests/test_capture.py covering happy paths (unhandled view exception, logger.exception with/without middleware, capture_message, capture_exception with no active exception, async view via AsyncClient+asgiref async_to_sync) and drop/safety paths (ignored exception t…
+- `2026-09-15 13:53:30` **p03-tests** — pass: exit 0: 105 passed in 0.25s
+- `2026-09-15 14:00:49` **p03-review1** — changes_requested (7m, $2.55): Implementation is solid: guards, savepointed creates, per-block try/except, and the degradation ladder all match the plan, and the gate is genuinely green (verified myself: 105 passed, full lint command exit 0, migration untouched, all PLAN tasks [x] with no [~]). But three acceptance criteria are …
+- `2026-09-15 14:12:30` **p03-review_fix1** — done (11m, $2.64): Applied review-r1 fixes for phase 3 (capture pipeline/storage). Fixed: (1) MAJOR POST password leak for undecorated views — build_request_block now cleanses POST by key via filter_.cleanse_setting, not only via @sensitive_post_parameters; (2) MAJOR Authorization header not redacted on Django 4.2 — …
+- `2026-09-15 14:12:31` **p03-tests** — pass: exit 0: 110 passed in 0.27s
+- `2026-09-15 14:17:53` **p03-review2** — changes_requested (5m, $2.13): Round-1's three majors and its minors are genuinely fixed in the product, each with a test that fails without the fix, and I verified the claims independently: 110 passed on the installed Django 5.2 and on 4.2 (where I confirmed `hidden_settings` really lacks `AUTH`, so the new `_ALWAYS_HIDDEN_META…
+- `2026-09-15 14:20:42` **p03-review_fix2** — done (2m, $0.91): Fixed all 4 findings from REVIEW-r2. Fixed: - [MAJOR] test_max_frames_bounds_the_stored_frame_count couldn't fail: rewrote with 3-level nested-call traceback, assert >=3 frames unbounded then ==1 with innermost `function` name under MAX_FRAMES=1, pinning truncation direction. - [MINOR] 3-sample que…
+- `2026-09-15 14:20:43` **p03-tests** — pass: exit 0: 113 passed in 0.26s
+- `2026-09-15 14:23:09` **p03-review_audit2** — approve (2m, $0.84): All four REVIEW-r2 findings are fixed in the product/tests by this diff, each with a test that fails without the fix. Verified the MAJOR independently: the nested-raise traceback yields 4 frames by default and exactly 1 ('_innermost') under MAX_FRAMES=1, so the rewritten test discriminates removal …
+- `2026-09-15 14:25:15` **p03-docs** — done (2m, $0.44): Verified docs against phase 3 diff (context.py, capture.py, storage.py, api.py, handlers.py, middleware.py, signals.py, apps.py, tests). No edits needed: CLAUDE.md commands/stack/pitfalls still true (no command changed; capture-never-raises and PG-savepoint pitfalls already match the implementation…
+- `2026-09-15 14:25:15` **p03-docs** — no changes: the documentation was already true for this phase
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.
