@@ -1,14 +1,14 @@
 # Autodev progress — django-admin-errors
 
 - **Status:** running
-- **Current:** phase 6/10 · step `commit`
+- **Current:** phase 7/10 · step `commit`
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260915-1213`
 - **Stack:** Python 3.10-3.13, Django 4.2/5.2/6.0/6.1, SQLite + PostgreSQL 13+, zero runtime deps beyond Django, hatchling src-layout wheel, pytest + pytest-django, ruff, tox, pytest-playwright for e2e · **Profile:** `django-htmx`
 - **Test command:** `uv run pytest -q` · **E2E:** `uv run --extra e2e pytest e2e -q`
 - **Usage:** 5h ? (reset 16.09 03:40) · 7d ?
-- **Totals:** 55 sessions · 4.5 h agent time · ≈$81.89 API-equivalent
-- **Clock:** 10.6 h since the run was created · 4.5 h working · 4.0 h paused on the usage limit · 2.1 h not running
-- **Updated:** 2026-09-15 22:47:45
+- **Totals:** 62 sessions · 5.2 h agent time · ≈$95.46 API-equivalent
+- **Clock:** 11.3 h since the run was created · 5.2 h working · 4.0 h paused on the usage limit · 2.1 h not running
+- **Updated:** 2026-09-15 23:31:14
 
 ## Phases
 
@@ -19,8 +19,8 @@
 | 3 | Capture pipeline and storage (sync transport) | no | ✅ done | e8e90a8 |  |
 | 4 | Background writer, sampling and signals | no | ✅ done | 8ebfccd |  |
 | 5 | Retention, commands, dedicated alias and Celery | no | ✅ done | a886f93 |  |
-| 6 | PostgreSQL pass | no | 🔨 in_progress |  |  |
-| 7 | Demo project | yes | ⏳ pending |  |  |
+| 6 | PostgreSQL pass | no | ✅ done | 9623bcf |  |
+| 7 | Demo project | yes | 🔨 in_progress |  |  |
 | 8 | Admin UI | yes | ⏳ pending |  |  |
 | 9 | Notifications, status transitions and i18n | yes | ⏳ pending |  |  |
 | 10 | Documentation, release readiness and final verification | yes | ⏳ pending |  |  |
@@ -120,6 +120,18 @@
 - `2026-09-15 22:42:26` **p06-tests** — pass: exit 0: 208 passed, 8 skipped, 1 warning in 3.74s
 - `2026-09-15 22:46:35` **p06-review2** — approve (4m, $1.58): Phase 6 delivers its goal and every acceptance criterion maps to something I re-ran myself: `make test-pg` green at 216 passed with 0 skipped (so the two-thread same-fingerprint race and all three `assertNumQueries` budgets really executed on PostgreSQL), container torn down with `docker ps` empty,…
 - `2026-09-15 22:47:45` **p06-docs** — done (1m, $0.42): Verified phase 6 docs against code. CLAUDE.md, Makefile, docs/spec.md, .autodev/ARCHITECTURE.md already true (test-pg/pg-up/pg-down, writer shutdown-close, savepoint discipline all match current code). Fixed two staleness spots: CHANGELOG.md's Unreleased entry said sanitization was "applied recursi…
+- `2026-09-15 22:47:46` **commit** — command files: this commit changes what the project's own commands run: Makefile, demo/docker-compose.yml
+- `2026-09-15 22:47:46` **p06-commit** — done: 9623bcf
+- `2026-09-15 22:47:47` **push** — done: korkholeh/django-admin-errors@autodev/spec-20260915-1213 as korkholeh
+- `2026-09-15 22:53:46` **p07-plan** — done (5m, $2.17): Wrote .autodev/phases/07-demo-project/PLAN.md with Context, Design (demo settings/URL map/demo_seed/test strategy), 12 ordered tasks, a verification table mapping every acceptance criterion to a named test or command, risks (#14, #20, #1, #7, #2, #6, #16) and out-of-scope. Appended 9 decisions to D…
+- `2026-09-15 23:06:21` **p07-implement** — handover: context reached 200,062 tokens — checkpointing for a fresh session
+- `2026-09-15 23:06:59` **p07-implement** — partial (13m, $4.4): Phase 7 demo project: T1-T9 done and verified (demo/manage.py, demo_project/, demo_app/ with 13 views + templates, demo_seed command — deterministic, idempotent, bypasses admission limiter — Makefile demo/demo-pg/e2e-up targets, pyproject pythonpath+sdist exclude, PG URL toolchain test extended, te…
+- `2026-09-15 23:09:30` **p07-implement** — done (2m, $0.79): Finished remaining phase-7 tasks (T10-T12). T10: ran full e2e cycle for real — make e2e-up (migrate, seed 40 issues, server up, ready URL answers), uv run --extra e2e pytest e2e -q (3 passed, confirmed test_admin_login.py actually ran), second e2e-up exits 0 with one pid, e2e-down cleans pid/port. …
+- `2026-09-15 23:09:36` **p07-tests** — pass: exit 0: 238 passed, 8 skipped, 1 warning in 4.93s
+- `2026-09-15 23:15:23` **p07-review1** — approve (5m, $2.22): Phase 7 hits its goal and the gate is genuinely green — I re-ran everything rather than trusting PLAN.md. `uv run pytest -q` → 238 passed, 8 skipped (skips are the `postgres_only` guards, expected on SQLite); `make lint` exit 0 (ruff check, format --check, django check, makemigrations --check); `uv…
+- `2026-09-15 23:28:51` **p07-e2e** — done (13m, $3.32): Built out the e2e QA layer for phase 7's demo project on top of the pre-existing single login case: two new plan files (e2e/plans/admin-login.plan.yaml, e2e/plans/demo-app-surface.plan.yaml) with oracles traced to spec/PLAN.md/ARCHITECTURE.md, e2e/README.md, and a RESULTS.md/artifact reporter added…
+- `2026-09-15 23:28:54` **p07-e2e** — pass: exit 0: 9 passed in 2.20s
+- `2026-09-15 23:31:14` **p07-docs** — done (2m, $0.67): Verified phase 7 docs against code. Fixed CLAUDE.md (e2e-up description now mentions --reset seeding and the already-answering skip case; layout line no longer says e2e is 'Phase 8 onward' since it's live since this phase). Fixed README.md's 'Try it' section, which falsely claimed dropped_queue_ful…
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.

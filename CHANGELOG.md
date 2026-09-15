@@ -108,3 +108,42 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   containing a NUL byte storable on PostgreSQL. `tests/test_storage.py` gained
   `test_last_seen_never_moves_backwards`, pinning the `Greatest(F("last_seen"), ...)` contract on
   both backends.
+- Demo project (spec section 13): `demo/` is a real, unpublished Django project
+  (`demo/manage.py`, `demo_project/`, `demo_app/`) that exercises every capture behaviour by hand
+  and becomes the browser surface for later phases. Thirteen views (`/`, `/boom/`,
+  `/boom/<int:n>/`, `/keyerror/<slug>/`, `/nested/`, `/logged/`, `/warning/`, `/sensitive/`,
+  `/storm/`, `/unique-storm/`, `/task/`, `/async-boom/`, `/404/`) cover unhandled exceptions,
+  logged errors, scrubbing, aggregation and admission limits; `demo_app.tasks.fail_task` runs as a
+  Celery task when `celery` is installed and as a direct call otherwise, so `/task/` produces one
+  issue either way. `demo_app.management.commands.demo_seed --issues N --days D [--reset]`
+  generates deterministic data (fixed exception/culprit pairs, `random.Random` fixed seed) through
+  the real capture pipeline — same `(fingerprint, count, status, daily counts)` snapshot across
+  repeated `--reset` runs — and creates (or resets the password of) a superuser `admin`/`admin`.
+  `make demo` / `make demo-pg` migrate, seed and serve; `make e2e-up` now really starts the server
+  (migrate, seed `--reset`, install chromium, background `runserver`, poll the ready URL) instead
+  of no-op'ing, and `make e2e-down` tears it down; a new `e2e/test_admin_login.py` logs in through a
+  real browser and reaches the admin index. `tests/test_demo.py` drives the full URL map, the
+  storm/unique-storm aggregation and admission bounds, and `demo_seed`, added to the main gate
+  (`pythonpath = [".", "demo"]`); `demo/` and `tests/test_demo.py` stay out of the sdist.
+- e2e plans and specs (`e2e/plans/admin-login.plan.yaml`, `e2e/plans/demo-app-surface.plan.yaml`):
+  the login case gained a wrong-password rejection and a session-persists-on-reload case; a new
+  `e2e/test_demo_surface.py` drives the demo's own pages through a real browser (the index page's
+  links, the sensitive form's rendered fields, and the technical 500/404 debug pages that
+  `tests/test_demo.py` only ever sees as a status code). `e2e/conftest.py` now writes
+  `e2e/RESULTS.md` after every run and defaults to `--screenshot=only-on-failure`.
+
+### Fixed
+
+- `demo/demo_app/templates/demo_app/sensitive_form.html` was missing the `token` input described
+  by the manual QA script, so the `@sensitive_variables("token")` scrub path was not reachable from
+  a browser; the view now reads a posted `token` field.
+- `demo_seed --issues N` silently capped at 64 distinct issues (its exception × culprit budget)
+  while reporting the requested `N` as if it had been created; it now raises a clear `CommandError`
+  above that budget and reports the actual number of issues created.
+- `make e2e-up`'s setup steps were joined with `;` instead of failing fast, so a broken
+  `migrate`/`demo_seed`/`playwright install` still ran the full 45 s ready-poll and reported a
+  misleading "server never became ready" instead of the real error.
+- `make demo`/`make demo-pg` now seed with `--reset`, matching `make e2e-up`, so repeated runs
+  reproduce the same 40-issue surface instead of accumulating events across runs.
+- README's storm/boom walkthrough now describes the writer's bounded queue instead of promising an
+  exact `+5000` occurrence count that a burst can legitimately fall short of.

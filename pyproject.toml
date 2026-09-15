@@ -65,7 +65,7 @@ artifacts = [
 
 [tool.hatch.build.targets.sdist]
 include = ["src/", "tests/", "tox.ini", ".github/workflows/ci.yml", "README.md", "CHANGELOG.md", "LICENSE"]
-exclude = [".autodev/", "demo/", "e2e/", "docs/img/"]
+exclude = [".autodev/", "demo/", "e2e/", "docs/img/", "tests/test_demo.py"]
 
 [tool.ruff]
 line-length = 100
@@ -85,7 +85,7 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "DJ", "RUF"]
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "tests.settings"
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", "demo"]
 addopts = "-ra --strict-markers --strict-config"
 
 [tool.coverage.run]

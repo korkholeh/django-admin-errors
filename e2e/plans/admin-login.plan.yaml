@@ -1,0 +1,66 @@
+feature: admin-login
+surfaces: [demo]
+entry: "http://127.0.0.1:8000/admin/login/"
+
+under_test:
+  - demo/demo_project/settings.py (INSTALLED_APPS, MIDDLEWARE, admin site registration)
+  - demo/demo_app/management/commands/demo_seed.py::_ensure_superuser
+
+oracle: >
+  PROFILE.md's end-to-end section lists "log in as admin/admin, open the issue list" as the first
+  step of the manual QA script; PLAN.md T10 and the phase acceptance criteria commit to "a real
+  browser case that logs in as admin/admin and reaches the admin index". Until Phase 8 registers
+  admin_errors on the admin site, the *index* (not the issue list) is the deepest observable page,
+  so that is what this feature's oracle stops at — the Errors section and everything past it is
+  Phase 8's plan, not this one (PLAN.md "Out of scope"). A login form's other half is implicit but
+  load-bearing: Django's own admin login view must actually reject a wrong credential and never
+  redirect an unauthenticated visitor past the login page (this is standard Django admin behaviour,
+  not something admin_errors changes, but it is what proves the login case is a real auth check and
+  not a page that happens to look right).
+
+scope_notes: >
+  Single persona, USER_ADMIN (admin/admin), created deterministically by `demo_seed` on every
+  `make e2e-up` (idempotent — password is reset even if the user already existed). Each case starts
+  from a fresh, unauthenticated Playwright context (browser context is function-scoped through the
+  `page` fixture from pytest-playwright, so no explicit logout step is needed between cases).
+
+cases:
+  - id: happy-path
+    priority: high
+    steps: ["open /admin/login/", "fill username=admin, password=admin", "submit"]
+    expected: "redirected to /admin/, the site header (#site-name) is visible"
+
+  - id: wrong-password
+    priority: high
+    steps: ["open /admin/login/", "fill username=admin, password=not-the-password", "submit"]
+    expected: >
+      stays on /admin/login/ (never reaches /admin/), Django's own
+      "Please enter the correct username and password" error text is shown on the page
+    oracle_note: >
+      Pairs with happy-path per the case taxonomy's permissions rule: a test that only checks
+      "wrong password fails" would also pass if the form were broken for everyone, so happy-path
+      is what proves the surface works at all and this case proves it is not a rubber stamp.
+
+  - id: session-persists-on-reload
+    priority: medium
+    steps: ["log in as admin/admin", "reload /admin/ in the same browser context"]
+    expected: "still on /admin/ with the site header visible — no bounce back to the login form"
+    oracle_note: >
+      Standard Django session-cookie behaviour; picked over the taxonomy's "navigation and
+      lifecycle" and "persistence" entries because it is the cheapest way to prove the demo's
+      SESSION/cookie configuration (no custom SESSION_COOKIE settings in demo_project/settings.py)
+      actually works end to end in a real browser, not just in Client()-based tests/test_demo.py.
+
+findings: []
+
+deferred_not_authored:
+  - id: issue-list-and-detail
+    reason: >
+      admin_errors is not registered on any admin site until Phase 8 (PLAN.md, ARCHITECTURE.md);
+      there is no Errors section to open yet. PROFILE.md's remaining login-adjacent cases (summary
+      cards, sparklines, issue detail, resolve/regressed, permission-gated context) belong to
+      Phase 8's e2e plan once that UI exists.
+  - id: logout
+    reason: >
+      Not part of the spec's manual QA script or this phase's acceptance criteria; stock Django
+      admin logout view, adds a case without proving anything specific to this product.

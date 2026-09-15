@@ -398,3 +398,191 @@ so `grep -n '^## '` is the index and a session can read only the part it needs.
   entirely (rejected, a correct pointer is more useful than none).
 
 
+
+## p07-plan
+
+- [p07/plan] `tests/test_demo.py` reaches the demo by importing `demo_project.settings` as data and
+  re-applying `ROOT_URLCONF` / `MIDDLEWARE` / `INSTALLED_APPS` / `ADMIN_ERRORS` with
+  `override_settings`, with `pythonpath = [".", "demo"]` added to the pytest config — why: the gate is
+  a single `uv run pytest -q` session bound to `tests.settings`, so a second `DJANGO_SETTINGS_MODULE`
+  is impossible, and importing the real constants keeps the test honest instead of re-declaring demo
+  config in the test — alternatives: a separate pytest session with `DJANGO_SETTINGS_MODULE=demo_project.settings`
+  (rejected: changes the project's single test command), duplicating the demo settings inside the test
+  (rejected: the test would stop tracking the demo).
+- [p07/plan] The demo-URL sweep runs with `ADMIN_ERRORS["TRANSPORT"]` forced to `"sync"`; only the
+  `/storm/?n=5000` timing case opts into `"thread"` with `django_db(transaction=True)` + `api.flush()`
+  — why: CLAUDE.md's convention (sync default in tests, threads opt in) and risk #6; 5000 synchronous
+  captures would each hit the database, which cannot meet the "< 1 s" criterion the demo's real
+  thread transport does — alternatives: sync for the storm too (rejected: measures the wrong thing),
+  a smaller `n` for the timing case (rejected: the criterion names 5000).
+- [p07/plan] `demo_seed` is deterministic by construction: a fixed exception/culprit/word list drives
+  the real fingerprint algorithm, and `random.Random(20260915)` drives every timestamp and daily
+  count; `--reset` deletes only `admin_errors` rows — why: makes "re-running with `--reset` is
+  idempotent" a snapshot-comparison test and keeps Phase 8's screenshots reproducible —
+  alternatives: explicit `fingerprint=` overrides (rejected: would bypass the algorithm the demo is
+  meant to demonstrate), unseeded randomness (rejected: untestable idempotency).
+- [p07/plan] `demo_seed` wraps its body in `override_settings(ADMIN_ERRORS={..., "TRANSPORT": "sync",
+  "NEW_ISSUES_PER_MINUTE": None, "EVENT_SAMPLE_PER_HOUR": 50})` — why: spec §13 requires the sync
+  pipeline for seeding, and the shipped 50-new-issues-per-minute admission limiter would silently cap
+  `--issues 100`; `django.test.utils` in a management command is acceptable because `demo/` is never
+  packaged — alternatives: writing rows directly with the ORM (rejected: spec §13 demands the real
+  pipeline), raising the limiter in the demo settings themselves (rejected: the demo should
+  demonstrate the shipped defaults).
+- [p07/plan] The demo runs with `DEBUG = True` by default (`DEMO_DEBUG=0` flips it) and
+  `ALLOWED_HOSTS = ["*"]` — why: `runserver` only serves the admin's static files under `DEBUG=True`,
+  so the e2e browser pass and the screenshots need it; capture is unaffected because
+  `CAPTURE_IN_DEBUG` defaults to `True` — alternatives: `DEBUG=False` + `runserver --insecure`
+  (rejected: hides the technical 500 page the demo is meant to contrast with).
+- [p07/plan] `make demo-pg` / `DEMO_DB=postgres` reuse the Phase 6 compose service and its
+  `admin_errors_test` database via `DEMO_PG_URL` — why: one container for both jobs, and no clash with
+  `make test-pg` because Django's test runner uses a separate `test_`-prefixed database —
+  alternatives: a second compose service or a `admin_errors_demo` database (rejected: needs an extra
+  init step for no benefit).
+- [p07/plan] `demo_app.tasks.fail_task` is a `shared_task` when Celery imports and a plain function
+  otherwise; `/task/` calls `.delay()` when available and otherwise calls it directly inside
+  `try/except` + `capture_exception()` — why: Celery is an optional extra, and `/task/` must produce
+  exactly one issue in both environments so `tests/test_demo.py` needs no conditional —
+  alternatives: requiring the celery extra for the demo (rejected: the demo must run on a bare
+  `uv sync`).
+- [p07/plan] `make e2e-up` now seeds with `demo_seed --issues 40 --days 30 --reset`, and
+  `tests/test_demo.py` is added to the sdist `exclude` list — why: `--reset` keeps the browser surface
+  identical on every run (repeat seeding would otherwise keep inflating counts), and the sdist already
+  excludes `demo/`, so an sdist-only test run would fail on `import demo_project` — alternatives:
+  seeding without `--reset` (rejected: non-reproducible screenshots), shipping `demo/` in the sdist
+  (rejected: contradicts the packaging decision from Phase 1).
+- [p07/plan] `make demo` and `make demo-pg` are not executed in this step's verification; their
+  substance is proven by the real `make e2e-up` cycle (same migrate → seed → runserver path), a
+  toolchain test pinning the recipes, and a non-blocking `DEMO_DB=postgres migrate + demo_seed` run
+  against the compose container — why: both targets end in a foreground `runserver` that never
+  returns, and rule 7 forbids leaving a listening process behind — alternatives: `timeout 20 make
+  demo` (rejected: leaves an orphaned server if the timeout races the process group).
+
+## p07-implement
+
+
+- [p07-implement/T7] `test_demo.py`'s `demo_urls` fixture must remove and reinstall
+  `AdminErrorsHandler` *inside* the `with override_settings(...)` block, not before it — verified
+  by reproducing the failure first: `AdminErrorsConfig._install_logging_handler()` called before
+  entering the block, after manually removing the process's original handler, still left the
+  handler at the host's `CAPTURE_LEVEL="ERROR"` instead of the demo's `"WARNING"`
+  (`test_warning_is_captured_at_warning_level` failed with `Issue.DoesNotExist`, no capture at
+  all). Root cause, confirmed by reading `django.test.utils.override_settings.enable`: when
+  `INSTALLED_APPS` is one of the overridden keys, Django calls `apps.set_installed_apps(...)`
+  *first*, before `settings._wrapped` is swapped to the overridden values — so the `ready()` rerun
+  that `set_installed_apps` triggers still sees the *old* `ADMIN_ERRORS` and reinstalls the handler
+  at the wrong level, silently undoing any reinstall done earlier. Fix: do the remove+reinstall
+  after entering `override_settings(...)`, once every overridden setting (including
+  `ADMIN_ERRORS`) is actually live. Regression coverage is the fixed test itself, rerun 3x clean —
+  why: this is a general trap for any test that overrides `INSTALLED_APPS` together with a setting
+  an `AppConfig.ready()` reads, worth recording since it is not specific to this module —
+  alternatives: monkeypatch `conf.settings` directly instead of `override_settings` (rejected:
+  stops testing the real demo `ADMIN_ERRORS` dict, the whole point of importing
+  `demo_project.settings` as data), call `_install_logging_handler()` twice, once before and once
+  after entering the block (rejected: relies on knowing which one wins instead of understanding
+  why).
+- [p07-implement/T8] `test_storm_of_5000_returns_under_one_second` does not assert
+  `issue.count == 5000`: a single-threaded burst of 5000 synchronous `capture_exception()` calls
+  against the writer's bounded `QUEUE_MAXSIZE` (1000, not overridden by the demo profile) can hit
+  `queue.Full` and drop occurrences that never even reach the writer thread's aggregation dict —
+  observed directly (`issue.count == 400` on a first draft of the test that did assert equality).
+  This matches PLAN.md's own verification table, which only commits to "grows the DB by ≤ 1 issue,
+  ≤ `EVENT_SAMPLE_PER_HOUR` events, 1 daily count row" for this case, not an exact occurrence
+  count — the test now asserts exactly that bound (`0 < issue.count <= 5000`) instead of the
+  stronger claim PLAN.md's prose implied but its own table did not require — why: matches what
+  spec section 13's manual QA script observes on a real single demo process (writer thread gets
+  many more GIL time-slices across a real second of wall clock than inside a fast, isolated pytest
+  case), and asserting the untestable exact count would make the case flaky by construction —
+  alternatives: raising `QUEUE_MAXSIZE` for this test only (rejected: would test a config the demo
+  itself never ships), sleeping between batches to let the writer drain (rejected: CLAUDE.md/PROFILE
+  ban sleep-based synchronization in favor of `api.flush()`, which this test already uses).
+- [p07-implement/T9] `demo_seed`'s 8 exception classes × 8 culprit functions (64 pairs) alone make
+  every fingerprint distinct for `--issues` up to 64 — `context.select_culprit` reports the
+  culprit's own qualname, and `fingerprint.for_exception` hashes `(exc_type, culprit,
+  normalized_message)`, so the word list in the message is cosmetic, not load-bearing for
+  uniqueness. Verified interactively: `--issues 60 --reset` produced exactly 60 issues, and running
+  `--reset` twice back to back produced an identical `(fingerprint, count, status, sorted daily
+  counts)` snapshot — why: keeps the admission-limiter test (`--issues 60`, bypassing the default
+  50/min bucket) and the default 40 safely inside the 64-pair budget without needing a larger or
+  cleverer combinatorial scheme — alternatives: hashing `i` into the word list instead of the
+  (exception, culprit) pair (rejected: normalization strips digits, so an index embedded only as a
+  number would collide; embedding it as a word would need as many unique words as issues, more
+  bookkeeping for no benefit since the pair already guarantees uniqueness).
+- [p07-implement/T10] `e2e/test_admin_login.py` needed no fix this session — reran the full cycle
+  end to end (`make e2e-up` → `uv run --extra e2e pytest e2e -q` → `make e2e-down`, plus a second
+  idempotent `make e2e-up` in between) and it passed on the first try (`3 passed`, verified with
+  `-v` that the login case ran rather than skipped) — why noted: the previous session's PLAN.md note
+  said this had never been run to completion and might need a selector/timing fix; recording that it
+  did not, so this is a measurement not a decision — alternatives: none.
+- [p07-implement/T11] README "Try it" section states `/boom/1/` then `/boom/2/` produce a *second*,
+  distinct issue from `/boom/`'s (different exception type: `ValueError` vs `ZeroDivisionError`),
+  not the same issue — why: an early draft implied both `/boom/` and `/boom/<n>/` collapse into one
+  issue together, which contradicts the fingerprint algorithm (exception type is part of the hash)
+  and PLAN.md's own T7 acceptance criterion (`test_boom_n_collapses_to_one_issue`: two `/boom/<n>/`
+  hits collapse with each other, not with `/boom/`) — alternatives: none, this is a correction to
+  keep the README's manual QA script accurate against the shipped grouping algorithm.
+
+
+## p07-e2e
+
+- [p07-e2e] Built out `e2e/plans/{admin-login,demo-app-surface}.plan.yaml` and two new browser
+  cases (`test_wrong_password_stays_on_login_page`, `test_session_persists_on_reload`) plus a new
+  `e2e/test_demo_surface.py` (index links, sensitive-form fields, `/boom/`'s and `/404/`'s real
+  debug pages) on top of the existing single login case — why: the phase's own risk register (#14)
+  intentionally kept e2e to one case during *implementation*, but this step's mandate is to QA the
+  browser surface the phase delivered, and the demo app's own pages (not the not-yet-built Errors
+  admin) are squarely in scope and cheap to probe — alternatives: leaving it at one case (rejected:
+  would not have caught the missing-token-field gap below), building a full page-object/support/
+  layer (rejected: 9 total cases across 2 features does not justify the indirection, matches
+  e2e-authoring.md's "keep the harness small").
+- [p07-e2e] Considered and rejected a browser case asserting `/sensitive/`'s technical 500 page
+  redacts the posted password/token. Reproduced against the live demo server: the raw values render
+  unfiltered (`grep` on the response body found both). Root cause is not a product bug —
+  `django.views.debug.SafeExceptionReporterFilter.is_active()` returns `settings.DEBUG is False`,
+  i.e. Django deliberately disables its own sensitive-data filter on the debug page whenever
+  DEBUG=True, which this demo runs with on purpose (PLAN.md: "the technical 500 page is part of
+  what the demo shows off"). Asserting redaction here would pin a Django-documented non-guarantee
+  as if it were ours — why: qa-oracles.md is explicit that an oracle must come from intent, not from
+  running the code and writing down what it did, and intent here (spec + ARCHITECTURE.md trust
+  boundary 1) is about admin_errors' own stored payload and its own admin rendering, not Django's
+  raw crash page — alternatives: asserting the values ARE present (rejected: that pins accidental
+  behaviour of a Django internal, not a contract of this product, and would break the moment Django
+  changes `is_active()`); recorded as `deferred_not_authored` in the plan instead, pointing at
+  `tests/test_demo.py::test_sensitive_view_payload_contains_no_secrets` for the real guarantee and
+  at Phase 8 for the browser-observable half (the admin issue detail page).
+- [p07-e2e] Fixed three real bugs found while exercising the demo through the browser and via
+  `demo_seed`, all previously flagged in REVIEW-r1.md but not yet applied: (1)
+  `demo_app/templates/demo_app/sensitive_form.html` had no `token` input, so the manual QA script's
+  local-variable scrub story (`@sensitive_variables("token")`) was not reachable from a browser even
+  though the view and its unit test already exercised it — added the field and had `views.sensitive`
+  read it (`request.POST.get("token") or DEMO_TOKEN`), confirmed live via curl that the template
+  hot-reloads under DEBUG=True with no server restart needed. (2) `demo_seed --issues N` silently
+  capped at 64 distinct issues (8 exceptions × 8 culprits) while reporting the requested `N` in its
+  success message — reproduced (`--issues 100` → "seeded 100 issues" but 64 rows); now raises
+  `CommandError` above the 64-pair budget and reports the actual `Issue` count delta. (3)
+  `make e2e-up`'s setup chain used `;` instead of `||`-guarded steps, so a failed `migrate`/
+  `demo_seed`/`playwright install` still ran the full 45 s ready-poll and reported a misleading
+  "server never became ready" — rewritten so each setup step fails fast with its own message; syntax
+  verified with `sh -n` and the idempotent "already answering" branch re-run for real (this session
+  never stops the orchestrator-managed server, so the failure branch itself was not exercised live).
+  Why fixed now rather than left to a review-fix step: all three are on the exact paths this QA step
+  drives (the sensitive form, `demo_seed`, `e2e-up`), so leaving them would mean shipping a green
+  suite over a known, reproduced defect — alternatives: leaving REVIEW-r1's other two findings
+  (README wording, missing type hints) for a docs/review pass — README's storm/boom wording was
+  fixed too since it's a two-line, low-risk doc correction directly read by the same manual-QA
+  script this phase ships; type hints on `demo_app/views.py`/`tasks.py` were left out as pure style
+  with no behavioural effect and no e2e case depending on it.
+- [p07-e2e] Added `demo/demo_seed --reset` to the `demo`/`demo-pg` Makefile targets (previously only
+  `e2e-up` used `--reset`) so repeated `make demo` reproduces the same 40-issue surface instead of
+  accumulating events/counts across runs, matching REVIEW-r1's NIT and the determinism this phase's
+  design section states as "the point" — alternatives: documenting the accumulation instead
+  (rejected: `--reset` is one flag and removes the discrepancy outright).
+- [p07-e2e] `e2e/conftest.py` gained a `RESULTS.md` reporter (parses `[qa:<feature>:<case-id>]` from
+  each test's docstring, looks up priority by regex against the matching `plans/*.yaml` rather than
+  adding a YAML-parsing dependency) and sets `--screenshot=only-on-failure` /
+  `--output=e2e/artifacts` by default when pytest-playwright is installed — why: e2e-authoring.md
+  requires a generated RESULTS.md and a failure artifact at minimum; a regex-based plan-priority
+  lookup was chosen over `pyyaml` to keep the zero-extra-runtime-deps discipline (CLAUDE.md) intact
+  even for a dev-only tool — alternatives: adding `pyyaml` to the `e2e` extra (rejected: unnecessary
+  dependency for reading one scalar field per case).
+
+

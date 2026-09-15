@@ -9,10 +9,10 @@ ADMIN_ERRORS_TEST_PG_URL ?= postgres://postgres:postgres@localhost:5432/admin_er
 e2e-up:
 	@test -f demo/manage.py || { echo "e2e: demo/ not present yet, skipping"; exit 0; }; \
 	uv run python -c "import urllib.request; urllib.request.urlopen('$(READY_URL)', timeout=2)" >/dev/null 2>&1 && { echo "e2e: server already answering on $(READY_URL)"; exit 0; }; \
-	uv run python demo/manage.py migrate --noinput && \
-	uv run python demo/manage.py demo_seed --issues 40 --days 30 && \
-	uv run python -m playwright install chromium && \
-	(uv run python demo/manage.py runserver 127.0.0.1:8000 --noreload >/tmp/admin-errors-e2e-server.log 2>&1 & echo $$! > $(PIDFILE)) && \
+	uv run python demo/manage.py migrate --noinput || { echo "e2e: migrate failed"; exit 1; }; \
+	uv run python demo/manage.py demo_seed --issues 40 --days 30 --reset || { echo "e2e: demo_seed failed"; exit 1; }; \
+	uv run python -m playwright install chromium || { echo "e2e: playwright install failed"; exit 1; }; \
+	(uv run python demo/manage.py runserver 127.0.0.1:8000 --noreload >/tmp/admin-errors-e2e-server.log 2>&1 & echo $$! > $(PIDFILE)); \
 	i=0; \
 	while [ $$i -lt 45 ]; do \
 		uv run python -c "import urllib.request; urllib.request.urlopen('$(READY_URL)', timeout=2)" >/dev/null 2>&1 && exit 0; \
@@ -48,7 +48,12 @@ build:
 	uv run python -m build && uv run twine check dist/*
 
 demo:
-	@echo "demo/ arrives in Phase 7"
+	uv run python demo/manage.py migrate --noinput
+	uv run python demo/manage.py demo_seed --issues 40 --days 30 --reset
+	uv run python demo/manage.py runserver 127.0.0.1:8000
 
 demo-pg:
-	@echo "demo/ arrives in Phase 7"
+	@$(MAKE) pg-up
+	DEMO_DB=postgres uv run python demo/manage.py migrate --noinput
+	DEMO_DB=postgres uv run python demo/manage.py demo_seed --issues 40 --days 30 --reset
+	DEMO_DB=postgres uv run python demo/manage.py runserver 127.0.0.1:8000

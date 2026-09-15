@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>django-admin-errors demo</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
+        h1 { font-size: 1.4rem; }
+        table { border-collapse: collapse; width: 100%; }
+        td { padding: 0.4rem 0.5rem; border-bottom: 1px solid #ddd; vertical-align: top; }
+        code { background: #f0f0f0; padding: 0.1rem 0.3rem; }
+        a { color: #0645ad; }
+    </style>
+</head>
+<body>
+    <h1>django-admin-errors demo</h1>
+    <p>
+        Each link below exercises one capture behaviour. Open
+        <a href="/admin/">the admin</a> (<code>admin</code> / <code>admin</code>) to see the
+        results grouped into issues.
+    </p>
+    <table>
+        {% for url, description in links %}
+        <tr>
+            <td><a href="{{ url }}"><code>{{ url }}</code></a></td>
+            <td>{{ description }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

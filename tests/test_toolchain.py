@@ -140,3 +140,25 @@ def test_postgres_dsn_contract_is_identical_across_compose_ci_and_settings(repo_
     match = re.search(r'DEFAULT_PG_URL = "([^"]+)"', settings_text)
     assert match, "DEFAULT_PG_URL not found in tests/settings.py"
     assert match.group(1) == expected_dsn
+
+    demo_settings_text = (repo_root / "demo" / "demo_project" / "settings.py").read_text()
+    demo_match = re.search(r'DEMO_PG_URL = "([^"]+)"', demo_settings_text)
+    assert demo_match, "DEMO_PG_URL not found in demo/demo_project/settings.py"
+    assert demo_match.group(1) == expected_dsn
+
+
+def test_makefile_demo_targets_run_the_real_project(repo_root) -> None:
+    """`make demo`/`make demo-pg` block on `runserver` in the foreground by design (PLAN.md's own
+    Risks #20), so their substance is pinned here instead of executed end to end."""
+    text = (repo_root / "Makefile").read_text()
+    demo_target = text.split("\ndemo:\n", 1)[1].split("\ndemo-pg:", 1)[0]
+    assert "demo/manage.py migrate --noinput" in demo_target
+    assert "demo/manage.py demo_seed" in demo_target
+    assert "demo/manage.py runserver" in demo_target
+
+    demo_pg_target = text.split("\ndemo-pg:\n", 1)[1]
+    assert "pg-up" in demo_pg_target
+    assert "DEMO_DB=postgres" in demo_pg_target
+    assert "demo/manage.py migrate --noinput" in demo_pg_target
+    assert "demo/manage.py demo_seed" in demo_pg_target
+    assert "demo/manage.py runserver" in demo_pg_target

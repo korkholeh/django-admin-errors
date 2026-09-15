@@ -33,17 +33,18 @@ All commands run from the repository root, non-interactively, with no venv activ
 | **e2e** | `make e2e-up && uv run --extra e2e pytest e2e -q && make e2e-down` |
 | demo (manual) | `make demo` (SQLite) · `make demo-pg` (compose Postgres) |
 
-`make e2e-up` is idempotent and exits 0 when `demo/` does not exist yet. It migrates, seeds
-(superuser `admin`/`admin`), installs chromium, backgrounds `runserver 127.0.0.1:8000 --noreload`
-with its pid in `.autodev/e2e-server.pid`, and polls `http://127.0.0.1:8000/admin/login/`.
-`make e2e-down` always kills it. Never leave a listening process behind.
+`make e2e-up` is idempotent and exits 0 when `demo/` does not exist yet, or when the server already
+answers. Otherwise it migrates, seeds `--reset` (superuser `admin`/`admin`), installs chromium,
+backgrounds `runserver 127.0.0.1:8000 --noreload` with its pid in `.autodev/e2e-server.pid`, and
+polls `http://127.0.0.1:8000/admin/login/`. `make e2e-down` always kills it. Never leave a listening
+process behind.
 
 ## Layout
 
 ```
 src/admin_errors/   the package (see docs/spec.md §4 for the module list)
 tests/              pytest; tests/settings.py is the minimal host
-e2e/                pytest-playwright specs against demo/, Phase 8 onward
+e2e/                pytest-playwright specs against demo/
 benchmarks/         bench_capture.py, not a test
 demo/               full Django project: manual QA, screenshots, PG target; never in the wheel
 docs/spec.md  docs/dev/adr/  docs/img/

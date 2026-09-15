@@ -52,10 +52,52 @@ All commands run from the repository root, non-interactively, with no virtualenv
 | full matrix | `uv run tox` |
 | build | `uv run python -m build && uv run twine check dist/*` |
 | e2e | `make e2e-up && uv run --extra e2e pytest e2e -q && make e2e-down` |
-| demo (manual) | `make demo` (SQLite) · `make demo-pg` (Postgres via docker compose) |
+| demo (manual, blocks on `runserver`) | `make demo` (SQLite) · `make demo-pg` (Postgres via docker compose) |
 
 See `docs/spec.md` for the full implementation specification and `docs/dev/adr/` for the accepted
 design decisions.
+
+## Try it
+
+`demo/` is a small, throwaway Django project (never published in the package) that exercises every
+capture behaviour by hand. It has no admin UI of its own yet — the *Errors* section of the admin
+lands in a later phase — but every capture path already works, and the technical 500 page and the
+console-logged exceptions are worth poking at on their own.
+
+```sh
+make demo       # SQLite: migrate, seed 40 issues over 30 days, runserver 127.0.0.1:8000
+make demo-pg    # same, against the docker-compose postgres:16 service (make pg-up/pg-down)
+```
+
+Both block on `runserver`; stop them with Ctrl-C. Log in at `/admin/` as `admin` / `admin` (created,
+or its password reset, by `demo_seed` on every run). Then, from `/` (the index lists every link with
+a one-line description):
+
+| URL | What it shows |
+|---|---|
+| `/boom/` | `ZeroDivisionError`, unhandled → 500 |
+| `/boom/<int:n>/` | `ValueError` with `n` in the message — message normalization: any `n` groups into the same issue |
+| `/keyerror/<slug>/` | `KeyError` on `slug` — same grouping, any key |
+| `/nested/` | a `RuntimeError` raised `from` an inner `ValueError` — chained exception stored |
+| `/logged/` | caught, `logger.exception(...)`, still captured, returns 200 |
+| `/warning/` | `logger.warning(...)` with `extra` — captured because the demo's `CAPTURE_LEVEL` is `"WARNING"` |
+| `/sensitive/` | POST form with a password/token — payload is scrubbed, nothing sensitive stored |
+| `/storm/?n=1000` | `n` occurrences of the same error in a loop — one issue, `count` grows by up to `n` (a tight burst can overflow the writer's bounded queue and drop some), only a handful of events stored (`EVENT_SAMPLE_PER_HOUR`) |
+| `/unique-storm/?n=200` | `n` distinct fingerprints — new-issue creation capped by `NEW_ISSUES_PER_MINUTE` |
+| `/task/` | a Celery task failure (eager without a broker, since the demo runs no worker) |
+| `/async-boom/` | an `async def` view raising |
+| `/404/` | `Http404` — confirms 404s are never captured |
+
+Manual QA script (spec section 13): `make demo`, hit `/boom/` three times → one issue, count 3; hit
+`/boom/1/` then `/boom/2/` → a second issue (`ValueError`, distinct from `/boom/`'s
+`ZeroDivisionError`), count 2 despite the different `n`; hit `/storm/?n=5000` → response under 1 s,
+one issue, at most `EVENT_SAMPLE_PER_HOUR` stored events, and the occurrence count grows by up to
+5000 (a tight burst can overflow the writer's bounded queue and drop some occurrences — that counter
+is process-local, so it is only visible in the same process, not through a separate `manage.py`
+invocation); run `uv run python demo/manage.py errors_cleanup --dry-run` → a report of what retention
+would delete.
+Resolving an issue and triggering it again (the *regressed* badge and the console email) is a
+Phase 8/9 addition and not yet observable in this phase's admin.
 
 ## License
 

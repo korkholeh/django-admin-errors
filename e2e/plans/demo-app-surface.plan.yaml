@@ -1,0 +1,89 @@
+feature: demo-app-surface
+surfaces: [demo]
+entry: "http://127.0.0.1:8000/"
+
+under_test:
+  - demo/demo_app/views.py
+  - demo/demo_app/templates/demo_app/index.html
+  - demo/demo_app/templates/demo_app/sensitive_form.html
+
+oracle: >
+  docs/spec.md §13 and this phase's own goal ("a runnable demo project that exercises every
+  capture behaviour by hand") define the demo as a surface a *person* clicks through, not only a
+  surface `tests/test_demo.py` sends `Client()` requests at. PLAN.md T2 requires the index page to
+  list "every URL with its one-line description" so a human can find each probe; PLAN.md's Design
+  section states `DEBUG=True` is deliberate because "the technical 500 page is part of what the
+  demo shows off" — so a real browser hitting an unhandled-exception URL must render Django's own
+  technical error page, which is the human-visible half of every `/boom*`-style probe that
+  `tests/test_demo.py` only ever observes as a status code.
+
+scope_notes: >
+  No login needed — every URL here is a plain (non-admin) view. Each case is independent: it visits
+  one URL fresh, no shared state between cases. This suite does not re-assert what
+  `tests/test_demo.py` already proves at the HTTP layer (issue counts, payload contents, scrubbing
+  in stored data) — it only asserts what changes when a *browser* renders the response instead of a
+  test client reading it.
+
+cases:
+  - id: index-lists-every-probe
+    priority: high
+    steps: ["open /"]
+    expected: >
+      the page renders links to /boom/, /sensitive/, /storm/?n=1000, /404/ and the other probes
+      from the URL map, each with visible link text
+
+  - id: sensitive-form-has-password-and-token-fields
+    priority: medium
+    steps: ["open /sensitive/"]
+    expected: >
+      the rendered form has a password input and a token input alongside username, so a person
+      following the manual QA script can exercise both the POST-parameter scrub
+      (`@sensitive_post_parameters("password")`) and the local-variable scrub
+      (`@sensitive_variables("token")`) described in the view's own docstring
+    oracle_note: >
+      This is a regression case for a real gap found while QA-ing this phase: the template only had
+      a password field, so the token-scrubbing half of the manual QA script was not reachable from a
+      browser even though the view code and its test already exercised it. Fixed in this session by
+      adding the token input and wiring it into the view.
+
+  - id: boom-renders-technical-500-page
+    priority: medium
+    steps: ["open /boom/"]
+    expected: "Django's technical 500 debug page renders, naming ZeroDivisionError"
+    oracle_note: >
+      `tests/test_demo.py` already pins the 500 status code; this case is the human-visible half —
+      proof that a real browser, not just a test client with `raise_request_exception=False`, sees
+      the debug page the demo is designed to show off.
+
+  - id: not-found-renders-technical-404-page
+    priority: low
+    steps: ["open /404/"]
+    expected: "a 404 response renders (Django's technical 'Page not found' page under DEBUG=True)"
+
+findings: []
+
+deferred_not_authored:
+  - id: sensitive-form-submission-is-scrubbed-on-the-debug-page
+    reason: >
+      Checked directly against the running demo server and confirmed this is not testable as a
+      product guarantee: Django's own `SafeExceptionReporterFilter.is_active()` returns
+      `settings.DEBUG is False` — i.e. the sensitive-data filter is deliberately *inactive* on the
+      raw technical debug page whenever DEBUG=True, which the demo runs with on purpose (see this
+      plan's oracle). A browser hitting /sensitive/ with DEBUG=True will see the raw password and
+      token on that page; asserting otherwise would pin a Django-documented non-guarantee, not a
+      real regression. The actual scrub guarantee — admin_errors' own stored `Event.payload` never
+      contains these secrets — is already asserted at the HTTP layer by
+      `tests/test_demo.py::test_sensitive_view_payload_contains_no_secrets`, and the
+      *browser-rendered* half of that guarantee (the admin issue detail page never showing them
+      either) only becomes checkable once Phase 8 registers the admin UI. Logged in
+      `.autodev/DECISIONS.md`.
+  - id: storm-and-unique-storm-in-a-browser
+    reason: >
+      Purely a timing/count assertion already pinned precisely by `tests/test_demo.py` (sync-path
+      exactness, thread-path bounds); a browser adds no new observable and duplicates the same
+      request without the browser being able to see the DB-side effects at all.
+  - id: task-and-async-boom-in-a-browser
+    reason: >
+      Neither has a distinct browser-visible outcome beyond the 200/500 status
+      `tests/test_demo.py` already pins (`/task/` returns a plain 200 body, `/async-boom/`'s debug
+      page looks identical in kind to the boom-renders-technical-500-page case already covered).
