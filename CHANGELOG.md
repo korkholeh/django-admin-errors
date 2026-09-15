@@ -131,6 +131,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   links, the sensitive form's rendered fields, and the technical 500/404 debug pages that
   `tests/test_demo.py` only ever sees as a status code). `e2e/conftest.py` now writes
   `e2e/RESULTS.md` after every run and defaults to `--screenshot=only-on-failure`.
+- Admin UI (spec section 12): `admin_errors.admin.IssueAdmin`, registered on `ADMIN_SITE`
+  (`django.contrib.admin.site` by default; a dotted path, an `AdminSite` instance/class, or `False`
+  to opt out — `admin_errors.admin.register(site)` is the public entry point) with a Sentry-style
+  changelist (three summary cards, status/level/exception-type/last-seen filters, a 14-day inline
+  SVG sparkline per row via one filtered `Prefetch`, ≤ 12 queries for 50 issues) and a read-only
+  detail page (traceback with collapsed library frames and toggleable locals, chained-exception
+  separators in CPython's own root-cause-first order, request block, a 30-day occurrences chart and
+  table, server info; ≤ 15 queries). Resolve/Ignore/Reopen as both single-issue buttons and bulk
+  actions, sharing one `_apply_status()` idempotent-update helper and firing the (until now unused)
+  `issue_status_changed` signal through `signals.send_safely()`; `resolved_at` is kept on reopen so
+  a re-triggered issue shows a "Regressed" badge. Sensitive context (headers, cookies, GET/POST/
+  body, the user block, Celery args/kwargs, frame locals, `extra`) is gated twice — once in the view
+  (stripped from the payload before it reaches the template) and once per template include — behind
+  `view_issue_context`, independent of `view_issue`/`change_issue`/`delete_issue`. New
+  `templatetags/admin_errors_tags.py` (sparkline/bar-chart SVG, status/level badges, traceback-block
+  ordering, compact numbers, frame labels, safe dict-table rendering) and
+  `static/admin_errors/{admin_errors.css,admin_errors.js}` (2.9 KB / 0.5 KB, well under the 6 KB /
+  3 KB budgets; only the admin's own CSS variables, so dark mode follows the host; vanilla JS that
+  only enhances — the locals `<details>` toggle works with JS disabled; expanding a collapsed
+  library frame's context requires JS (it stays collapsed without it), and the toggle `<button>`
+  carries `aria-expanded`, kept in sync on click).
+  `demo_seed` now also creates a `viewer`/`viewer` staff user holding only `view_issue`, so the
+  permission-gated case is reachable from a real browser. `e2e/plans/admin-ui.plan.yaml` and
+  `e2e/test_admin_ui.py` cover the list, detail, permission-gating and resolve/re-hit/regressed
+  flows through a real Chromium session; `e2e/test_screenshots.py` produces the four
+  `docs/img/issue-{list,detail}-{light,dark}.png` README screenshots.
 
 ### Fixed
 
@@ -147,3 +173,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reproduce the same 40-issue surface instead of accumulating events across runs.
 - README's storm/boom walkthrough now describes the writer's bounded queue instead of promising an
   exact `+5000` occurrence count that a burst can legitimately fall short of.
+- `includes/occurrences.html`'s Path/task column used `event.payload.celery.task` as a filter
+  *argument* (`|default:`), which Django resolves without swallowing a missing key; any event
+  without a `"celery"` key — i.e. every plain HTTP capture — 500'd the whole issue detail page.
+  Fixed with `{% firstof %}`, Django's own safe "try A, then B, then a literal fallback" primitive.
+- The admin detail page's Resolve/Ignore/Reopen buttons lived in `<form>` elements nested inside the
+  admin's own outer change-form `<form>` — invalid HTML that a browser silently misparses, so
+  clicking "Resolve" actually submitted to the change-form URL instead of the status-transition one
+  (only reachable from a real browser, not from `Client()`-based tests). Fixed with `formaction`/
+  `formmethod` buttons instead of nested forms.

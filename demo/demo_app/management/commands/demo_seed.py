@@ -131,6 +131,7 @@ class Command(BaseCommand):
                 self._seed_one(i, n_days, rng, now, today, alias)
 
         self._ensure_superuser()
+        self._ensure_viewer()
         created = Issue.objects.using(alias).count() - before
         self.stdout.write(self.style.SUCCESS(f"seeded {created} issues"))
 
@@ -233,3 +234,27 @@ class Command(BaseCommand):
         user.is_superuser = True
         user.set_password("admin")
         user.save()
+
+    def _ensure_viewer(self) -> None:
+        """Staff user `viewer`/`viewer` holding only `view_issue` (spec section 12.5, e2e).
+
+        Reaches the `view_issue`-only permission case from a real browser: the list and detail
+        pages render but the request/locals sections are hidden, and a status POST is 403.
+        """
+        from django.contrib.auth.models import Permission
+
+        user_model = get_user_model()
+        user, _created = user_model.objects.get_or_create(
+            username="viewer",
+            defaults={"email": "viewer@example.com"},
+        )
+        user.email = user.email or "viewer@example.com"
+        user.is_staff = True
+        user.is_superuser = False
+        user.set_password("viewer")
+        user.save()
+        view_issue = Permission.objects.get(
+            content_type__app_label="admin_errors", codename="view_issue"
+        )
+        user.user_permissions.set([view_issue])
+        self.stdout.write(self.style.SUCCESS("ensured viewer user (view_issue only)"))

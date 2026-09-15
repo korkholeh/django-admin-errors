@@ -1,14 +1,14 @@
 # Autodev progress — django-admin-errors
 
 - **Status:** running
-- **Current:** phase 7/10 · step `commit`
+- **Current:** phase 8/10 · step `commit`
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260915-1213`
 - **Stack:** Python 3.10-3.13, Django 4.2/5.2/6.0/6.1, SQLite + PostgreSQL 13+, zero runtime deps beyond Django, hatchling src-layout wheel, pytest + pytest-django, ruff, tox, pytest-playwright for e2e · **Profile:** `django-htmx`
 - **Test command:** `uv run pytest -q` · **E2E:** `uv run --extra e2e pytest e2e -q`
 - **Usage:** 5h ? (reset 16.09 03:40) · 7d ?
-- **Totals:** 62 sessions · 5.2 h agent time · ≈$95.46 API-equivalent
-- **Clock:** 11.3 h since the run was created · 5.2 h working · 4.0 h paused on the usage limit · 2.1 h not running
-- **Updated:** 2026-09-15 23:31:14
+- **Totals:** 75 sessions · 6.7 h agent time · ≈$122.93 API-equivalent
+- **Clock:** 12.8 h since the run was created · 6.7 h working · 4.0 h paused on the usage limit · 2.1 h not running
+- **Updated:** 2026-09-16 00:58:33
 
 ## Phases
 
@@ -20,8 +20,8 @@
 | 4 | Background writer, sampling and signals | no | ✅ done | 8ebfccd |  |
 | 5 | Retention, commands, dedicated alias and Celery | no | ✅ done | a886f93 |  |
 | 6 | PostgreSQL pass | no | ✅ done | 9623bcf |  |
-| 7 | Demo project | yes | 🔨 in_progress |  |  |
-| 8 | Admin UI | yes | ⏳ pending |  |  |
+| 7 | Demo project | yes | ✅ done | 3a7d483 |  |
+| 8 | Admin UI | yes | 🔨 in_progress |  |  |
 | 9 | Notifications, status transitions and i18n | yes | ⏳ pending |  |  |
 | 10 | Documentation, release readiness and final verification | yes | ⏳ pending |  |  |
 
@@ -132,6 +132,27 @@
 - `2026-09-15 23:28:51` **p07-e2e** — done (13m, $3.32): Built out the e2e QA layer for phase 7's demo project on top of the pre-existing single login case: two new plan files (e2e/plans/admin-login.plan.yaml, e2e/plans/demo-app-surface.plan.yaml) with oracles traced to spec/PLAN.md/ARCHITECTURE.md, e2e/README.md, and a RESULTS.md/artifact reporter added…
 - `2026-09-15 23:28:54` **p07-e2e** — pass: exit 0: 9 passed in 2.20s
 - `2026-09-15 23:31:14` **p07-docs** — done (2m, $0.67): Verified phase 7 docs against code. Fixed CLAUDE.md (e2e-up description now mentions --reset seeding and the already-answering skip case; layout line no longer says e2e is 'Phase 8 onward' since it's live since this phase). Fixed README.md's 'Try it' section, which falsely claimed dropped_queue_ful…
+- `2026-09-15 23:31:15` **commit** — command files: this commit changes what the project's own commands run: Makefile
+- `2026-09-15 23:31:15` **p07-commit** — done: 3a7d483
+- `2026-09-15 23:31:17` **push** — done: korkholeh/django-admin-errors@autodev/spec-20260915-1213 as korkholeh
+- `2026-09-15 23:37:22` **p08-plan** — done (6m, $2.24): Explored the existing package (no admin.py/templates/templatetags/static yet), spec §12 + §14.2, ADR 0005/0007, risk rows #1/#2/#8/#9/#14 and the demo/e2e surface, then wrote .autodev/phases/08-admin-ui/PLAN.md with Context, Design, a 15-task ordered checklist, a verification table mapping every ac…
+- `2026-09-15 23:49:50` **p08-implement** — handover: context reached 205,657 tokens — checkpointing for a fresh session
+- `2026-09-15 23:51:03` **p08-implement** — partial (13m, $4.57): Built the full read/triage admin UI for phase 8, tasks T1–T12: src/admin_errors/admin.py (IssueAdmin, LastSeenFilter, register()/_resolve_site(), custom status-transition and event-detail URLs, _apply_status idempotent status helper, _redact_payload view-level permission gate), templatetags/admin_e…
+- `2026-09-16 00:04:35` **p08-implement** — handover: context reached 200,148 tokens — checkpointing for a fresh session
+- `2026-09-16 00:08:40` **p08-implement** — partial (17m, $4.46): Wrote T13's e2e plan (e2e/plans/admin-ui.plan.yaml) and spec (e2e/test_admin_ui.py, 8 cases), T14's e2e/test_screenshots.py, and login()/wait_until() helpers in e2e/conftest.py. While running these against the live demo, found and fixed a real product bug: includes/occurrences.html used a payload s…
+- `2026-09-16 00:25:12` **p08-implement** — done (16m, $4.3): Completed Phase 8 (Admin UI) T13-T15, finishing where session 2 left off. Restarted the demo server fresh and re-ran e2e/test_admin_ui.py: 7/8 passed immediately (confirming session 2's occurrences.html fix), but resolve-then-rehit-regressed-badge reproduced a real bug deterministically - header.ht…
+- `2026-09-16 00:25:21` **p08-tests** — pass: exit 0: 296 passed, 8 skipped, 1 warning in 8.56s
+- `2026-09-16 00:30:54` **p08-review1** — changes_requested (5m, $2.84): Solid phase overall: 296 tests green on SQLite (re-run independently), full lint gate clean, no migration churn, port 8000 free after e2e, real e2e RESULTS.md with 8 admin-UI cases passing, four genuine screenshots committed, and the two hard-won product fixes (nested <form>, occurrences.html `|def…
+- `2026-09-16 00:39:25` **p08-review_fix1** — done (8m, $2.15): Applied all 4 MAJOR and all 5 MINOR findings from REVIEW-r1.md, none rejected. Fixed: 1. [MAJOR] Celery/Extra sections moved out of request.html's `{% if ae_payload.request %}` guard into new includes/context_blocks.html, included from change_form.html and event_detail.html. Added tests for celery/…
+- `2026-09-16 00:39:35` **p08-tests** — pass: exit 0: 304 passed, 8 skipped, 1 warning in 9.63s
+- `2026-09-16 00:46:20` **p08-review2** — changes_requested (6m, $3.42): Round 2 fixed every round-1 finding, verified independently: 304 tests pass on SQLite, the full lint gate is clean, the e2e cycle is 18/18 green and leaves port 8000 free, and the re-taken dark screenshot confirms the `--primary` → `--link-fg` contrast fix. The Celery/Extra include, the negative fi…
+- `2026-09-16 00:46:20` **p08-review2** — touched the tree: review round 2 changed docs/img/issue-detail-dark.png, docs/img/issue-detail-dark.png, docs/img/issue-detail-light.png, docs/img/issue-detail-light.png, docs/img/issue-list-dark.png +3 more
+- `2026-09-16 00:51:04` **p08-review_fix2** — done (4m, $1.48): Applied all round-2 review fixes for phase 8 (Admin UI). Fixed: - [MAJOR] Accessibility: `.ae-frame-toggle` buttons now carry `aria-expanded`/`aria-controls`, synced by JS on click; sparkline/bar-chart SVGs dropped `aria-hidden="true"` and now carry an `aria-label` stating every date:value pair (sa…
+- `2026-09-16 00:51:14` **p08-tests** — pass: exit 0: 307 passed, 8 skipped, 1 warning in 9.71s
+- `2026-09-16 00:54:01` **p08-review_audit2** — approve (2m, $0.82): All five round-2 findings are fixed in the product by this diff, each with a test that fails without it, and nothing was rejected. The MAJOR accessibility finding is fully addressed: `.ae-frame-toggle` now carries `aria-expanded` (true for in-app, false for library frames) plus `aria-controls` poin…
+- `2026-09-16 00:56:24` **p08-e2e** — done (2m, $0.52): E2E harness for phase 8 (admin UI) was already built and reviewed to approval in prior sessions: e2e/plans/admin-ui.plan.yaml (8 cases) + e2e/test_admin_ui.py + e2e/test_screenshots.py, covering issue-list cards/sparkline, boom/boom_n aggregation and dedup, collapsed library frames, locals toggle, …
+- `2026-09-16 00:56:32` **p08-e2e** — pass: exit 0: 17 passed, 1 deselected in 8.10s
+- `2026-09-16 00:58:33` **p08-docs** — done (2m, $0.67): Reviewed CLAUDE.md, docs/dev/adr/{0005,0007}, CHANGELOG.md, README.md against PLAN.md and the phase-8 diff. Only README.md was stale: the "Try it" section still said the demo "has no admin UI of its own yet" and that the regressed badge / console email were "not yet observable" — both false now tha…
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.

@@ -1,0 +1,31 @@
+{% load i18n %}
+<fieldset class="module ae-occurrences">
+  <h2>{% translate "Occurrences" %}</h2>
+  {% include "admin/admin_errors/issue/includes/chart.html" %}
+  <table class="ae-events-table">
+    <thead>
+      <tr>
+        <th>{% translate "Timestamp" %}</th>
+        <th>{% translate "Path / task" %}</th>
+        <th>{% translate "User" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in ae_events %}
+      <tr>
+        <td><a href="{% url 'admin:admin_errors_issue_event' original.pk event.pk %}">{{ event.timestamp }}</a></td>
+        <td>{% firstof event.ae_payload.request.path event.ae_payload.celery.task "—" %}</td>
+        <td>
+          {% if perms.admin_errors.view_issue_context %}
+            {{ event.ae_payload.request.user.username|default:"—" }}
+          {% else %}
+            —
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="3">{% translate "No events stored." %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</fieldset>

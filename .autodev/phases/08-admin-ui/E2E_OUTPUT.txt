@@ -1,0 +1,5 @@
+$ uv run --extra e2e pytest e2e -q
+# exit code: 0   # 2026-09-16 00:56:32
+
+.................                                                        [100%]
+17 passed, 1 deselected in 8.10s

@@ -1,0 +1,7 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block content %}
+  {% include "admin/admin_errors/issue/includes/cards.html" %}
+  {{ block.super }}
+{% endblock %}

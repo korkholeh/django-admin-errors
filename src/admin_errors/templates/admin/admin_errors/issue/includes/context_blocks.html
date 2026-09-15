@@ -1,0 +1,15 @@
+{% load i18n %}
+{% if ae_payload.celery or ae_payload.extra %}
+<fieldset class="module ae-context-blocks">
+  {% if perms.admin_errors.view_issue_context %}
+    {% if ae_payload.celery %}
+      <h2>{% translate "Celery" %}</h2>
+      {% include "admin/admin_errors/issue/includes/dict_table.html" with items=ae_payload.celery %}
+    {% endif %}
+    {% if ae_payload.extra %}
+      <h2>{% translate "Extra" %}</h2>
+      {% include "admin/admin_errors/issue/includes/dict_table.html" with items=ae_payload.extra %}
+    {% endif %}
+  {% endif %}
+</fieldset>
+{% endif %}

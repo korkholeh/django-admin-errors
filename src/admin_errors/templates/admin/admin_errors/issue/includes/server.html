@@ -1,0 +1,12 @@
+{% load i18n %}
+{% if ae_payload.server %}
+<fieldset class="module ae-server">
+  <h2>{% translate "Server" %}</h2>
+  <dl class="ae-kv">
+    <dt>{% translate "Hostname" %}</dt><dd>{{ ae_payload.server.hostname }}</dd>
+    <dt>{% translate "PID" %}</dt><dd>{{ ae_payload.server.pid }}</dd>
+    <dt>{% translate "Python" %}</dt><dd>{{ ae_payload.server.python }}</dd>
+    <dt>{% translate "Django" %}</dt><dd>{{ ae_payload.server.django }}</dd>
+  </dl>
+</fieldset>
+{% endif %}

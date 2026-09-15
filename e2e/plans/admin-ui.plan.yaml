@@ -1,0 +1,147 @@
+feature: admin-ui
+surfaces: [demo]
+entry: "http://127.0.0.1:8000/admin/admin_errors/issue/"
+
+under_test:
+  - src/admin_errors/admin.py::IssueAdmin
+  - src/admin_errors/templates/admin/admin_errors/issue/
+  - src/admin_errors/templatetags/admin_errors_tags.py
+  - src/admin_errors/static/admin_errors/admin_errors.js
+
+oracle: >
+  docs/spec.md §13's manual QA script is written to be followed by hand: "hit /boom/ three times →
+  one issue with count 3", "hit /boom/1/, /boom/2/ → one issue", "resolve it in the admin, hit
+  /boom/ → badge regressed". PLAN.md's own risk #1 closes "wrong product — operator cannot triage"
+  specifically through this plan: "the browser cases (T13) walk spec §13's manual QA script …
+  instead of only asserting HTML in Client() tests". §12.5's permission table and ADR 0007 are the
+  oracle for the permission case: a `view_issue`-only user must see the list and the detail page but
+  none of the `view_issue_context`-gated sections, and a status POST from that user is a 403 — the
+  thing only a browser-plus-real-session can prove that `tests/test_admin.py`'s `Client()` calls
+  already prove at the HTTP layer, but not through an actual cookie-authenticated GET-then-POST
+  browser journey.
+
+scope_notes: >
+  Two personas from `demo_seed`: `admin`/`admin` (superuser) and `viewer`/`viewer` (`view_issue`
+  only). The demo runs `TRANSPORT="thread"` (demo_project/settings.py), so a just-captured
+  occurrence lands in the database on the writer thread's ~1 s flush interval, not synchronously;
+  every case that depends on a fresh capture reaching the admin uses `wait_until()`
+  (`e2e/conftest.py`) — reload the target admin page and re-check the real condition until it holds
+  or a generous timeout expires, never a fixed sleep. `demo_seed --issues 40` (run by `make e2e-up`)
+  never creates a `ZeroDivisionError` (not in its 8-exception list) or a `boom`/`boom_n`/`keyerror`
+  culprit (not in its 8-culprit list), so every demo-app probe this plan drives produces issues the
+  seed data cannot collide with. Counts are asserted as **deltas** (read the row before, act, read
+  it after) rather than the literal absolute values spec §13 states for a from-scratch database:
+  this suite runs after other e2e files may have already hit the same demo-app URL once (e.g.
+  `demo-app-surface`'s own `/boom/` case) in the same long-lived server process, and a delta is the
+  same product guarantee (aggregation counts every occurrence) without depending on file collection
+  order or a from-scratch server for every run — the same correction already applied to the storm
+  timing case in Phase 7 (`.autodev/DECISIONS.md`, `p07-implement/T8`).
+
+cases:
+  - id: issue-list-cards-and-sparkline
+    priority: high
+    steps: ["log in as admin/admin", "open the issue list"]
+    expected: >
+      the three summary cards (Unresolved issues / Events last 24h / New issues last 24h) render
+      with numeric values, and at least one row's Trend column contains an inline `<svg>` sparkline
+      — spec §12.2
+
+  - id: boom-three-hits-count-3
+    priority: high
+    steps: >
+      ["read the current count for the ZeroDivisionError issue (0 if the row does not exist yet)",
+      "open /boom/ three times", "reload the issue list search filtered to ZeroDivisionError until
+      the count reflects the three new occurrences"]
+    expected: "the issue's count increased by exactly 3 and all three hits collapsed into one row"
+    oracle_note: >
+      spec §13 states the literal count as 3 starting from an empty database; scope_notes above
+      explains why this case asserts the delta instead — the aggregation guarantee under test is
+      identical either way.
+
+  - id: boom-n-collapse
+    priority: high
+    steps: >
+      ["open /boom/1/", "open /boom/2/", "search the issue list for the boom_n culprit"]
+    expected: >
+      exactly one issue row for the `boom_n` culprit (ValueError, message-normalized so `1` and `2`
+      collapse), its count increased by exactly 2, and it is a distinct row from the
+      ZeroDivisionError issue `/boom/` produces (different exception type, different culprit) — the
+      Phase 7 README correction (`.autodev/DECISIONS.md`, `p07-implement/T11`): `/boom/` and
+      `/boom/<n>/` are two different issues, not one
+
+  - id: detail-traceback-collapsed-library-frame
+    priority: medium
+    steps: >
+      ["open /boom/999999/ once (fresh boom_n occurrence)", "open that issue's detail page as
+      admin", "locate a library frame (Django internals, not demo_app) in the traceback"]
+    expected: >
+      the library frame's context lines are not visible by default (CSS `.ae-frame--library` hides
+      them until `.ae-frame--expanded` is added), and clicking its toggle button
+      (`.ae-frame-toggle`) reveals the context lines, syncing `aria-expanded` from `"false"` to
+      `"true"` — spec §12.3 "library frames collapsed by default"; REVIEW-r2-audit.md's MINOR
+      finding (JS `aria-expanded` sync had no test)
+
+  - id: locals-toggle
+    priority: medium
+    steps: >
+      ["open /boom/1234567/ once", "open that issue's detail page as admin", "find the in-app
+      boom_n frame's Locals `<details>`", "click the Locals summary"]
+    expected: >
+      the `<details>` is closed on load and clicking its `<summary>` reveals a dict table row for
+      the frame's local variable `n` — spec §12.3 "per-frame Locals toggle (rendered only with
+      view_issue_context)"; admin is a superuser so this persona always has that permission
+
+  - id: nested-chain-separator
+    priority: high
+    steps: ["open /nested/ once", "open that issue's detail page as admin"]
+    expected: >
+      two `.ae-traceback-block`s render, root cause first (`ValueError` block before `RuntimeError`
+      block — CPython's own order), separated by a `.ae-traceback-separator` reading "The above
+      exception was the direct cause of the following exception:" (the view raises
+      `RuntimeError(...) from exc`) — spec §12.3 and `.autodev/DECISIONS.md` `p08-plan`'s
+      chain-ordering decision
+
+  - id: resolve-then-rehit-regressed-badge
+    priority: high
+    steps: >
+      ["open /keyerror/e2e-regression-badge/ once", "open that issue's detail page as admin", "click
+      Resolve", "open /keyerror/e2e-regression-badge/ again (a fresh occurrence on a resolved
+      issue)", "reload the detail page"]
+    expected: >
+      after Resolve the status badge reads "Resolved"; after the second hit reopens the issue
+      (storage.py's reopen-on-new-occurrence path) the badge reads "Regressed"
+      (`.ae-badge--regressed`, `status == open` with `resolved_at` still set) — spec §13's manual QA
+      script and §6.1
+
+  - id: viewer-has-no-context-and-403-on-status-post
+    priority: high
+    steps: >
+      ["log in as viewer/viewer", "open the issue list", "open any issue's detail page", "assert no
+      Resolve/Ignore/Reopen buttons and no Request GET/POST/Headers/Cookies sections", "POST
+      directly to that issue's …/status/resolve/ URL with the viewer's session"]
+    expected: >
+      the list and detail pages render (view_issue is enough to reach them), the
+      view_issue_context-gated sections and the change_issue-gated action buttons are absent, and
+      the direct status POST returns 403 — spec §12.5's permission table, ADR 0007's double gate
+
+findings: []
+
+deferred_not_authored:
+  - id: storm-5000-under-one-second-in-a-browser
+    reason: >
+      Already covered end to end by `tests/test_demo.py::test_storm_of_5000_returns_under_one_second`
+      (timing + bound-based count assertion, `p07-implement/T8`) and by
+      `deferred_not_authored: storm-and-unique-storm-in-a-browser` in
+      `e2e/plans/demo-app-surface.plan.yaml` — a browser adds no new observable over a plain HTTP
+      response time, and re-running a 5000-iteration burst here would only add e2e wall-clock for a
+      guarantee already pinned precisely.
+  - id: errors-cleanup-dry-run-report
+    reason: >
+      `errors_cleanup --dry-run` is a CLI command, not a browser-observable admin surface; its report
+      is covered by the management-command test module (spec §14.2's module list), not this UI plan.
+  - id: dark-mode-visual-check
+    reason: >
+      Genuinely visual ("switch the browser to dark mode → UI readable", spec §13); not assertable
+      as a pass/fail DOM check. Covered by T14's `e2e/test_screenshots.py` producing
+      light/dark screenshots of the list and detail pages, looked at directly and recorded in
+      PLAN.md's notes and `.autodev/DECISIONS.md` rather than pinned as a browser assertion here.

@@ -1,0 +1,26 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrahead %}{{ block.super }}{{ media }}{% endblock %}
+
+{% block bodyclass %}{{ block.super }} app-admin_errors model-issue ae-event-detail{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+<a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+&rsaquo; <a href="{% url 'admin:app_list' app_label='admin_errors' %}">{% translate 'Errors' %}</a>
+&rsaquo; <a href="{% url 'admin:admin_errors_issue_changelist' %}">{% translate 'Issues' %}</a>
+&rsaquo; <a href="{% url 'admin:admin_errors_issue_change' issue.pk %}">{{ issue.title }}</a>
+&rsaquo; {% translate "Event" %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  {% include "admin/admin_errors/issue/includes/header.html" with original=issue ae_standalone_actions=True %}
+  {% include "admin/admin_errors/issue/includes/traceback.html" %}
+  {% include "admin/admin_errors/issue/includes/request.html" %}
+  {% include "admin/admin_errors/issue/includes/context_blocks.html" %}
+  {% include "admin/admin_errors/issue/includes/server.html" %}
+</div>
+{% endblock %}

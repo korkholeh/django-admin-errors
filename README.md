@@ -60,9 +60,9 @@ design decisions.
 ## Try it
 
 `demo/` is a small, throwaway Django project (never published in the package) that exercises every
-capture behaviour by hand. It has no admin UI of its own yet — the *Errors* section of the admin
-lands in a later phase — but every capture path already works, and the technical 500 page and the
-console-logged exceptions are worth poking at on their own.
+capture behaviour by hand, including the *Errors* section of the admin (issue list with sparklines,
+detail page with traceback/request/occurrences, Resolve/Ignore/Reopen). The technical 500 page and
+the console-logged exceptions are also worth poking at on their own.
 
 ```sh
 make demo       # SQLite: migrate, seed 40 issues over 30 days, runserver 127.0.0.1:8000
@@ -96,8 +96,8 @@ one issue, at most `EVENT_SAMPLE_PER_HOUR` stored events, and the occurrence cou
 is process-local, so it is only visible in the same process, not through a separate `manage.py`
 invocation); run `uv run python demo/manage.py errors_cleanup --dry-run` → a report of what retention
 would delete.
-Resolving an issue and triggering it again (the *regressed* badge and the console email) is a
-Phase 8/9 addition and not yet observable in this phase's admin.
+Resolving an issue in the admin and triggering it again shows the *Regressed* badge on its detail
+page; the notification email for that event is a Phase 9 addition and not yet observable.
 
 ## License
 

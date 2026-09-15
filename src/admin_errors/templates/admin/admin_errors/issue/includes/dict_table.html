@@ -1,0 +1,12 @@
+{% load i18n admin_errors_tags %}
+{% if items %}
+<table class="ae-dict-table">
+  <tbody>
+    {% for key, value in items.items %}
+    <tr><th>{{ key }}</th><td>{{ value|ae_value }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="ae-empty">{% translate "None." %}</p>
+{% endif %}

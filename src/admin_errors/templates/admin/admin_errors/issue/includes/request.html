@@ -1,0 +1,26 @@
+{% load i18n %}
+{% if ae_payload.request %}
+<fieldset class="module ae-request">
+  <h2>{% translate "Request" %}</h2>
+  <dl class="ae-kv">
+    <dt>{% translate "Method" %}</dt><dd>{{ ae_payload.request.method }}</dd>
+    <dt>{% translate "Path" %}</dt><dd>{{ ae_payload.request.path }}</dd>
+  </dl>
+  {% if perms.admin_errors.view_issue_context %}
+    <dl class="ae-kv">
+      <dt>{% translate "URL" %}</dt><dd>{{ ae_payload.request.url }}</dd>
+      <dt>{% translate "Remote address" %}</dt><dd>{{ ae_payload.request.remote_addr }}</dd>
+      <dt>{% translate "User" %}</dt>
+      <dd>{% if ae_payload.request.user %}{{ ae_payload.request.user.username }}{% else %}—{% endif %}</dd>
+    </dl>
+    <h3>{% translate "GET" %}</h3>
+    {% include "admin/admin_errors/issue/includes/dict_table.html" with items=ae_payload.request.query %}
+    <h3>{% translate "POST" %}</h3>
+    {% include "admin/admin_errors/issue/includes/dict_table.html" with items=ae_payload.request.post %}
+    <h3>{% translate "Headers" %}</h3>
+    {% include "admin/admin_errors/issue/includes/dict_table.html" with items=ae_payload.request.headers %}
+    <h3>{% translate "Cookies" %}</h3>
+    {% include "admin/admin_errors/issue/includes/dict_table.html" with items=ae_payload.request.cookies %}
+  {% endif %}
+</fieldset>
+{% endif %}

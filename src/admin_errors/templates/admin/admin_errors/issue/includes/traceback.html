@@ -1,0 +1,20 @@
+{% load i18n admin_errors_tags %}
+<fieldset class="module ae-traceback">
+  <h2>{% translate "Traceback" %}</h2>
+  {% if ae_payload.exception %}
+    {% ae_traceback_blocks ae_payload as ae_blocks %}
+    {% for block in ae_blocks %}
+      {% if block.separator %}<p class="ae-traceback-separator">{{ block.separator }}</p>{% endif %}
+      <div class="ae-traceback-block">
+        <p class="ae-exc-heading">{{ block.exc.module }}.{{ block.exc.type }}: {{ block.exc.value }}</p>
+        {% for frame in block.exc.frames %}
+          {% include "admin/admin_errors/issue/includes/frame.html" %}
+        {% endfor %}
+      </div>
+    {% endfor %}
+  {% elif ae_payload.message %}
+    <p class="ae-message-only">{{ ae_payload.message }}</p>
+  {% else %}
+    <p class="ae-empty">{% translate "No event data recorded yet." %}</p>
+  {% endif %}
+</fieldset>

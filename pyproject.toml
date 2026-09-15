@@ -81,12 +81,18 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "DJ", "RUF"]
 # Django Meta inner classes: `indexes`/`constraints`/`permissions` are conventional literal
 # lists read once by the model machinery, never mutated at runtime.
 "src/admin_errors/models.py" = ["RUF012"]
+# Django ModelAdmin class attributes (`list_display`, `list_filter`, ...): the same conventional
+# literal-list-read-once pattern, enforced by Django's own `ModelAdmin` machinery.
+"src/admin_errors/admin.py" = ["RUF012"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "tests.settings"
 testpaths = ["tests"]
 pythonpath = [".", "demo"]
-addopts = "-ra --strict-markers --strict-config"
+addopts = "-ra --strict-markers --strict-config -m 'not screenshots'"
+markers = [
+    "screenshots: writes the tracked docs/img/*.png files; excluded from the default run, opt in with -m screenshots",
+]
 
 [tool.coverage.run]
 source = ["admin_errors"]

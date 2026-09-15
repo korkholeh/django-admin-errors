@@ -117,4 +117,16 @@ TIME_ZONE = "UTC"
 SECRET_KEY = "test-secret-key-not-for-production"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# The admin's own `base.html` calls `{% static %}`, which raises `ImproperlyConfigured` when
+# `STATIC_URL` is `None`. `django.contrib.staticfiles` stays out of `INSTALLED_APPS` on purpose
+# (see CLAUDE.md's minimal-host constraint) — `{% static %}` only needs `STATIC_URL`, not the app.
+STATIC_URL = "/static/"
+
 ADMIN_ERRORS = {"TRANSPORT": "sync"}
+if os.environ.get("ADMIN_ERRORS_TEST_ADMIN_SITE_FALSE") == "1":
+    # Only ever set by test_admin.py's subprocess test for ADMIN_SITE=False: the default
+    # `AdminConfig.ready()` calls `autodiscover()` at `django.setup()` time, before any
+    # `override_settings` block in the *same* process could take effect, so proving that
+    # `ADMIN_SITE=False` skips the default registration needs a fresh interpreter booted with
+    # the setting already in place.
+    ADMIN_ERRORS["ADMIN_SITE"] = False

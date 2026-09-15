@@ -289,3 +289,18 @@ def test_demo_seed_reset_is_idempotent():
 def test_demo_seed_is_not_capped_by_new_issue_admission():
     call_command("demo_seed", "--issues", "60", "--days", "30")
     assert Issue.objects.count() == 60
+
+
+def test_demo_seed_creates_a_view_only_viewer():
+    from django.contrib.auth import get_user_model
+
+    call_command("demo_seed", "--issues", "5", "--days", "10", "--reset")
+    call_command("demo_seed", "--issues", "5", "--days", "10", "--reset")
+
+    user_model = get_user_model()
+    assert user_model.objects.filter(username="viewer").count() == 1
+    user = user_model.objects.get(username="viewer")
+    assert user.is_staff
+    assert not user.is_superuser
+    codenames = set(user.user_permissions.values_list("codename", flat=True))
+    assert codenames == {"view_issue"}

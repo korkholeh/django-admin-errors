@@ -1,0 +1,14 @@
+{% load i18n admin_errors_tags %}
+<div class="ae-frame {% if frame.in_app %}ae-frame--in-app{% else %}ae-frame--library{% endif %}">
+  <button type="button" class="ae-frame-toggle" aria-expanded="{% if frame.in_app %}true{% else %}false{% endif %}" aria-controls="ae-frame-context-{{ forloop.parentloop.counter }}-{{ forloop.counter }}">{{ frame|ae_frame_label }}</button>
+  <pre class="ae-frame-context" id="ae-frame-context-{{ forloop.parentloop.counter }}-{{ forloop.counter }}">{% for line in frame.pre_context %}<span class="ae-line">{{ line }}</span>
+{% endfor %}<span class="ae-line ae-line--failing">{{ frame.context_line }}</span>
+{% for line in frame.post_context %}<span class="ae-line">{{ line }}</span>
+{% endfor %}</pre>
+  {% if ae_can_view_context and perms.admin_errors.view_issue_context and frame.vars %}
+    <details class="ae-frame-locals">
+      <summary>{% translate "Locals" %}</summary>
+      {% include "admin/admin_errors/issue/includes/dict_table.html" with items=frame.vars %}
+    </details>
+  {% endif %}
+</div>

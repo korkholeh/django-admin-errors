@@ -586,3 +586,440 @@ so `grep -n '^## '` is the index and a session can read only the part it needs.
   dependency for reading one scalar field per case).
 
 
+
+## p08-plan
+
+
+- [p08/plan] Spec §12.3's "Copy as text" traceback button is deferred to Phase 9 — why: the roadmap
+  assigns "the 'Copy as text' server-rendered plain traceback, gated the same way as the traceback
+  itself" to Phase 9's deliverables, and Phase 8's own acceptance criteria never mention it —
+  alternatives: build it now anyway (duplicates Phase 9 work and spends the 3 KiB JS budget before
+  the gating test that Phase 9 owns exists).
+- [p08/plan] `has_change_permission` is left at the ModelAdmin default (permission-based) instead of
+  the literal spec §12.2 wording "returns True only for the status actions"; the form is made
+  non-editable by `get_readonly_fields` returning every concrete field plus
+  `render_change_form(show_save=False, show_save_and_continue=False, show_save_and_add_another=False)`
+  — why: ADR 0005 states it explicitly ("`has_change_permission` still returns `True` for
+  `change_issue` holders so the change view remains reachable"), and a permission method that lies
+  about the object would also break Django's own view-permission read-only path for a
+  `view_issue`-only user — alternatives: override it per-view (fragile, breaks the read-only detail
+  page for viewers).
+- [p08/plan] The 14-day sparkline data comes from one `Prefetch("daily_counts", …,
+  to_attr="recent_counts")` filtered to the last 14 days, applied in `get_queryset` for every view
+  (not only the changelist) — why: one code path, and the extra cheap query on the detail page stays
+  well inside the ≤ 15 budget — alternatives: branch on the request path (more code for one query).
+- [p08/plan] Templates live at `templates/admin/admin_errors/issue/{change_list,change_form,
+  event_detail}.html` with `includes/` beside them, and are wired through explicit
+  `change_list_template` / `change_form_template` attributes — why: the explicit attribute does not
+  depend on the admin's app/model template fallback chain, which is only semi-public and has shifted
+  between Django releases (risk #8) — alternatives: rely on the implicit lookup path only.
+- [p08/plan] Custom URLs are prepended before `super().get_urls()` and each is wrapped in
+  `self.admin_site.admin_view`; the status view is POST-only via `require_POST` (405 on GET) and
+  raises `PermissionDenied` (403) without `change_issue` — why: the admin's trailing
+  `<path:object_id>/` catch-all would otherwise swallow `…/status/<action>/`, and `admin_view` is what
+  supplies `is_staff` + the login redirect (ARCHITECTURE "Authentication: none of our own") —
+  alternatives: a `<pk>/change/` POST handler (mixes mutation into the read view).
+- [p08/plan] One helper `_apply_status(issue, action, user)` performs a single queryset `UPDATE` and
+  fires `issue_status_changed` through `signals.send_safely`; it backs both the three bulk actions and
+  the single-issue view — why: bulk and single must behave identically (an acceptance criterion), the
+  transition must be idempotent (ARCHITECTURE failure table), and `send_safely` keeps a raising
+  receiver from breaking the admin response — alternatives: `Signal.send` directly (one bad receiver
+  500s the admin), separate code paths for bulk and single (two places to drift).
+- [p08/plan] `resolved_at` is kept when reopening, and the regressed badge is derived as
+  `status == open and resolved_at is not None` — why: spec §6.1 defines `resolved_at` as "kept after
+  reopen to render a 'regressed' badge", and `demo_seed._status_for` already seeds exactly that shape
+  — alternatives: a dedicated boolean column (new migration, and this phase must ship none).
+- [p08/plan] Chained exceptions render root-cause-first: `exception.chain` (built outermost-first by
+  `context.build_exception_block`) is reversed in a template tag, and the separator between a pair is
+  chosen from the *outer* entry's `cause` flag ("direct cause" when true, "During handling of the
+  above exception" when false) — why: this is CPython's own traceback order and wording, which is what
+  an operator recognises — alternatives: render outermost first (contradicts every traceback they
+  have ever read).
+- [p08/plan] `tests/settings.py` gains `STATIC_URL = "/static/"` — why: the admin's `base.html` calls
+  `{% static %}`, which raises `ImproperlyConfigured` when `STATIC_URL` is `None`, and this is the
+  first phase that renders an admin page in tests; `django.contrib.staticfiles` is deliberately still
+  not installed, to keep proving the minimal-host constraint — alternatives: install `staticfiles`
+  (weakens the minimal-host guarantee spec §3 makes).
+- [p08/plan] Template-tag unit tests go into `tests/test_admin.py` rather than a new
+  `tests/test_templatetags.py` — why: spec §14.2 fixes the module list and the tags exist only for
+  the admin surface — alternatives: a separate module (a module the spec's test inventory does not
+  know about).
+- [p08/plan] The summary cards stay three separate aggregate queries as spec §12.2 describes, and are
+  only collapsed into fewer if the ≤ 12 query budget turns out tight — why: the spec states the query
+  count, and any change must be a reduction, never an increase; the bound is never relaxed to fit —
+  alternatives: pre-optimise into one conditional-aggregation query (less readable, unneeded until
+  measured).
+- [p08/plan] `demo_seed` gains a second persona: staff user `viewer`/`viewer` holding only
+  `view_issue` — why: the phase's e2e list requires "a `view_issue`-only user seeing no context
+  section and getting 403 on the status POST", and the browser can only use a user the seed created
+  — alternatives: create the user from the e2e test via `manage.py shell` (a browser test reaching
+  around the app), or skip the browser half of the permission case (drops an acceptance criterion).
+- [p08/plan] Screenshots are produced by a dedicated `e2e/test_screenshots.py` using two Playwright
+  contexts with `color_scheme="light"`/`"dark"`, after driving `/nested/` and `/sensitive/` so the
+  detail page shows a chained exception and a request block — why: `demo_seed` captures without a
+  request, so seeded issues alone would produce a detail screenshot with no request section; the
+  admin's default theme is "auto", so `color_scheme` alone flips it — alternatives: click the admin's
+  theme-toggle button (localStorage state, more brittle), hand-taken screenshots (not reproducible).
+- [p08/plan] The demo runs `TRANSPORT="thread"`, so every browser case waits for the captured row
+  with a reload-until-visible helper built on Playwright's `expect(...)` timeout — why: a fixed sleep
+  is both slower and flakier, and the guides forbid sleeping on an observable signal — alternatives:
+  force `TRANSPORT="sync"` in the demo for e2e (would stop exercising the real production path).
+
+## p08-implement
+
+
+- [p08-implement/T2] `IssueAdmin.media` is an explicit `@property` combining `super().media` with a
+  `forms.Media(css=..., js=...)` instance, instead of relying on a `class Media` inner class — why:
+  read `django/contrib/admin/options.py`, confirmed `ModelAdmin.media` is already an overriding
+  `@property` (not generated from an inner `Media` class via `forms.MediaDefiningClass`), so a plain
+  `class Media` on `IssueAdmin` would silently never be picked up — alternatives: none, this is how
+  Django's own `ModelAdmin` subclasses add assets.
+- [p08-implement/T2] `_redact_payload(payload, can_view_context)` strips sensitive keys from the
+  payload dict *before* it reaches template context (view-level gate), independent of every
+  include's own `{% if perms.admin_errors.view_issue_context %}` (template-level gate) — why: two
+  independent layers per ADR 0007/risk #2, so a missing `{% if %}` in a future include cannot leak
+  data that was already stripped upstream — alternatives: template-only gating (rejected: single
+  point of failure), stripping in the template via a custom filter (rejected: still runs the risk of
+  an unguarded raw access to `ae_payload.request.headers` bypassing the filter).
+- [p08-implement/T9] `status_view`/`event_detail_view` are wrapped as
+  `self.admin_site.admin_view(require_POST(self.status_view))` (admin_view outermost) so the
+  staff/login check and CSRF happen before the 405 check — why: matches the order a real user hits
+  them (unauthenticated → login redirect, not a 405) — alternatives: `require_POST` outermost
+  (rejected: would 405 an anonymous GET before ever checking login).
+- [p08-implement/T11] Badge/status colours in `admin_errors.css` were redesigned to use only the six
+  documented admin CSS variables (`--primary`, `--darkened-bg`, `--hairline-color`, `--body-fg`,
+  `--error-fg`, `--message-warning-bg`) instead of invented hex greens/greys for
+  resolved/ignored/info — why: spec §12.4/ADR 0005 fix the variable list; a first draft used
+  `#2e7d32`/`#757575`/`#0277bd` for resolved/ignored/info badges which `test_css_uses_no_hard_coded_colours`
+  correctly caught — alternatives: allow hex only as a `var(--x, #fallback)` default (rejected for
+  status colours specifically: none of the six variables has a natural "success green", and
+  inventing one contradicts "only admin CSS variables").
+- [p08-implement/T2] `_STATUS_FOR_ACTION`/`_apply_status` live at module level (not on `IssueAdmin`)
+  and both the single-issue `status_view` and the three `@admin.action` bulk methods call it — why:
+  PLAN.md's design requires bulk and single to share one path so idempotency and the
+  `issue_status_changed` payload shape can't drift between them — alternatives: none, this is what
+  the plan specifies.
+- [p08-implement] Session 1 stopped after T1–T12 (context budget) with the full gate green
+  (`uv run pytest -q`: 293 passed/8 skipped; ruff clean; `django check` clean; `makemigrations
+  --check --dry-run` clean, no migration added). T13 (e2e plan + cases), T14 (screenshots), T15
+  (changelog + docs/img + final e2e gate) are untouched — deferred to session 2 rather than rushed,
+  per CLAUDE.md "never skip a test for later" read together with the step contract's "stop at a
+  clean point" instruction when context runs out — alternatives: writing thin/rushed e2e cases to
+  claim T13 done (rejected: would violate "never weaken a check to make it pass" and the e2e
+  authoring guide's quality bar).
+
+## p08-implement2
+
+- [p08-implement2/T13] Wrote `e2e/plans/admin-ui.plan.yaml` (8 cases per PLAN.md's T13 list) and
+  `e2e/test_admin_ui.py`, plus `login()`/`wait_until()` helpers added to `e2e/conftest.py` (a
+  reload-until-condition poll, replacing a fixed sleep, since the demo runs `TRANSPORT="thread"`).
+  Cross-file imports inside `e2e/` must go through `from e2e.conftest import ...`, not
+  `from conftest import ...`: `e2e/__init__.py` makes `e2e` a package, so pytest's rootdir
+  insertion puts the repo root (not `e2e/`) on `sys.path` — `pyproject.toml`'s `pythonpath = ["."]`
+  is what makes `e2e.conftest` importable. Verified by the `ModuleNotFoundError: No module named
+  'conftest'` collection error this produced on the first run, fixed by qualifying both imports.
+- [p08-implement2/T13] Running the new suite against a real `make e2e-up` server found a genuine
+  product bug, not a test-writing mistake: `includes/occurrences.html`'s Path/task column was
+  `{{ event.payload.request.path|default:event.payload.celery.task|default:"—" }}`. Django's
+  `FilterExpression.resolve()` only swallows a missing **primary** variable; a variable used as a
+  **filter argument** (`event.payload.celery.task` here) is resolved via a bare
+  `arg.resolve(context)` with no `ignore_failures`, so it raises `VariableDoesNotExist` uncaught the
+  moment `payload` has no `"celery"` key — which is every plain HTTP capture (`context.py` only adds
+  `"celery"` when Celery info is actually present, `src/admin_errors/context.py:462`). This 500'd
+  the *entire* issue detail page for any issue with a non-Celery event, i.e. almost always. It
+  survived `tests/test_admin.py` because `payload_factory()` (`tests/conftest.py`) always includes a
+  `"celery"` key, so no existing unit test ever exercised the realistic no-celery shape — exactly
+  the class of gap e2e-authoring.md's "red e2e row is a product bug until proven otherwise" exists
+  to catch. Fixed with `{% firstof event.payload.request.path event.payload.celery.task "—" %}`
+  (`FirstOfNode.render` resolves each candidate with `ignore_failures=True`, Django's own safe
+  primitive for exactly this "try A, then B, then a literal fallback" case) — chosen over rewriting
+  as nested `{% if %}` tags (more template code for the same three-way fallback) or wrapping the
+  payload upstream in Python (the template-level fix is smaller and keeps the fallback logic
+  visible where it's used). Added a regression test,
+  `tests/test_admin.py::test_detail_renders_events_without_a_celery_key` (payload built via
+  `payload_factory()` with the `"celery"` key deleted, asserting a 200 and the request path in the
+  body) — `uv run pytest -q tests/test_admin.py` passes (56 tests) and the full suite is green (294
+  passed, 8 skipped). Grepped every shipped template for the same eager-arg pattern
+  (`grep -rn celery src/admin_errors/templates/`); the only other `celery` reference
+  (`includes/request.html`'s `{% include ... with items=ae_payload.celery %}`) is already inside
+  `{% if ae_payload.celery %}`, so it only runs when the key exists — not the same bug.
+- [p08-implement2/T13] After applying the template fix, re-running `e2e/test_admin_ui.py` against
+  the *same, already-running* `make e2e-up` server still reproduced the identical
+  `VariableDoesNotExist` error verbatim (confirmed via direct `curl` against
+  `/admin/admin_errors/issue/528/change/` with a saved session cookie, comparing the exception
+  traceback and payload dump before/after the edit — byte-for-byte the same "Failed lookup for key
+  [celery]" page). Root cause, confirmed by reading `django/template/engine.py:37-41`: when
+  `TEMPLATES[0]["OPTIONS"]` does not set `loaders` explicitly (true for `demo/demo_project/settings.py`
+  and for `tests/settings.py`), Django *always* wraps the configured loaders in
+  `django.template.loaders.cached.Loader`, regardless of `DEBUG` — the "cached loader only applies
+  when `DEBUG=False`" behaviour some older Django docs describe is not what this installed version
+  (5.2.17) does. `make e2e-up`'s server runs `runserver ... --noreload`, so nothing ever restarts
+  the process or evicts that per-`Engine` compiled-template cache; a template edit made while the
+  server is up is invisible to it until the process restarts. Confirmed the fix itself is correct
+  by loading the template in a *fresh* interpreter (`uv run python -c "... get_template(...)..."`,
+  outside the running server) and reading back the post-edit `{% firstof %}` source. **Not yet
+  re-verified against a restarted server** — this session ran `make e2e-down` before repeating the
+  full `e2e/test_admin_ui.py` and `e2e/test_screenshots.py` cycle, per the step contract's
+  stop-here instruction. Next session: `make e2e-up` (fresh process, picks up the template fix) then
+  `uv run --extra e2e pytest e2e -q` should turn all remaining red rows green with no further
+  product changes expected — the only known-fixed bug was this one, and it was template-only.
+  General lesson worth keeping: **any template or static-asset edit made while a `make e2e-up`
+  server is already running needs a restart (`make e2e-down && make e2e-up`) before re-testing**,
+  the same way a Python code edit would if `--noreload` weren't already forcing that for those too.
+- [p08-implement2/T13] `make e2e-down` returned shell exit code 1 even though it left port 8000
+  free (`lsof -nP -iTCP:8000 -sTCP:LISTEN` printed nothing right after) and `.autodev/e2e-server.pid`
+  did not exist at the time of the call. Likely explanation, not yet confirmed: this session's own
+  `make e2e-up` hit the idempotent "already answering" branch (a server from an earlier step/session
+  was already listening on :8000 before this session started), so this session's `e2e-up` never
+  wrote `.autodev/e2e-server.pid` itself, and some other invocation had already removed the file by
+  the time `e2e-down` ran a second time in this session. Recorded rather than fixed: the port-free
+  outcome (rule 7's actual requirement) held both times `lsof` was checked, so this did not block
+  the step, but the recipe's own contract ("must exit 0") did not hold — worth a look next session
+  if it recurs.
+- [p08-implement2/T13] Remaining before T13 is checked off: re-run `e2e/test_admin_ui.py` against a
+  freshly restarted server and fix anything still red (expected: the 5 template-crash-adjacent
+  cases — `boom-n-collapse`'s detail-dependent assertions were already green, but
+  `detail-traceback-collapsed-library-frame`, `locals-toggle`, `nested-chain-separator`,
+  `resolve-then-rehit-regressed-badge`, `viewer-has-no-context-and-403-on-status-post` all failed
+  while the server still had the stale template). T14 (`e2e/test_screenshots.py`, written but never
+  run) and T15 (changelog + docs/img + final gate) are fully untouched.
+- [p08-implement2/T14] `e2e/test_screenshots.py` ran once as part of a full `uv run --extra e2e
+  pytest e2e -q` pass, before the `occurrences.html` bug above was found — the four PNGs it wrote to
+  `docs/img/` were deleted at the end of this session rather than left in place, since they almost
+  certainly captured the crashed detail page (same server, same bug) rather than the real UI. T14 is
+  untouched/not-run for the record; next session should run it fresh only after confirming
+  `e2e/test_admin_ui.py` is fully green post-restart.
+
+## p08-implement
+
+
+- [p08-implement3/T13] Restarted `make e2e-up` fresh (session 2's `occurrences.html` fix was
+  template-only and the previous `--noreload` process never picked it up per the p08-implement2
+  handoff). 7/8 `e2e/test_admin_ui.py` cases went green immediately; the 8th
+  (`resolve-then-rehit-regressed-badge`) reproduced deterministically in isolation, ruling out
+  test-order cross-contamination — debugged with a direct Playwright session against the live demo
+  (`element.closest('form')` on the "Resolve" button returned `{action: null, id: 'issue_form'}`,
+  i.e. the admin's own outer change-form, not our status-transition form) — why the failure looked
+  like flaky permission denial in the server log at first (a POST that *did* hit
+  `/status/resolve/` 403'd for an unrelated reason on one run) but was actually two independent
+  observations of the same root cause on different runs: `header.html`'s three `<form>` elements
+  are nested inside `change_form.html`'s ambient `<form id="issue_form">` (Django's own
+  `admin/change_form.html` wraps `{% block field_sets %}`, which is where our `header.html` is
+  included), which is invalid HTML — the HTML5 parsing algorithm ignores a `<form>` start tag while
+  another form is already open, so the "Resolve" button's markup ends up a child of the *outer*
+  form, and the first nested `</form>` end tag closes that outer form early (which is why "Ignore"
+  and "Reopen", coming after that first stray `</form>`, ended up in their own accidentally-valid
+  forms and worked while "Resolve" did not) — alternatives: an out-of-band `fetch()` POST via JS
+  (rejected: makes a core action JS-dependent, which nothing else in this phase does, and spends
+  JS budget Phase 9 needs for "Copy as text"); a single wrapping `<form>` with `form="id"`
+  attributes on the buttons (rejected: the wrapping `<form>` itself would still be nested inside
+  `issue_form` in the change-view context and suffer the identical parser misbehavior, producing a
+  form element that silently doesn't exist in the DOM at all).
+- [p08-implement3/T13] Fixed by removing the per-action `<form>` wrappers in `header.html` in
+  favour of plain `<button formaction="..." formmethod="post">` (valid HTML5, submits via the
+  nearest *ambient* form — `issue_form` on the change page, supplying its own CSRF token already —
+  without ever opening a new one), gated by a new `ae_standalone_actions` context flag that
+  `event_detail.html` sets to `True` (it has no ambient form, so it still gets one real wrapping
+  `<form>` around all three buttons) and `change_form.html`'s include leaves unset — why: this is
+  the only fix that works correctly in both the two contexts `header.html` is actually included
+  from, verified by direct DOM inspection after the change, not just by re-running the e2e case —
+  alternatives: JS-driven fetch (see above), duplicating `header.html` into two per-context
+  templates (more code for the same three buttons).
+- [p08-implement3/T13] `.ae-inline-form{display:inline}` → `display:contents`, so the single
+  wrapping `<form>` in the standalone (event-detail) case no longer breaks `.ae-header-actions`'s
+  `flex` gap between the three buttons — why: `display:contents` removes the form's own box from
+  layout entirely while keeping its children as direct flex participants, the standard technique
+  for "this wrapper must exist for semantics/behaviour but must not affect layout" — alternatives:
+  a second, duplicate CSS rule keyed off the standalone case specifically (more CSS for a purely
+  cosmetic concern already solved generically).
+- [p08-implement3/T13] Added `test_change_view_has_no_nested_status_forms` and
+  `test_event_detail_has_no_nested_status_forms` (`tests/test_admin.py`), a generic "walk every
+  `<form>`/`</form>` in the rendered body and assert they never nest" check — why: this bug class
+  is structurally invisible to every existing admin test, which all POST straight to
+  `reverse("admin:admin_errors_issue_status", ...)` via Django's test `Client` and never render+
+  parse the page the way a browser does; a generic structural assertion catches *any* future nested
+  form, not just this one — alternatives: a narrower test asserting the specific `formaction`
+  markup (rejected: couples the test to the exact fix rather than the invariant that actually
+  matters).
+- [p08-implement3/T14] `e2e/test_screenshots.py`'s browser context now sets `viewport={"width":
+  1600, "height": 1000}` instead of the Playwright default (1280×720) — why: the admin's own
+  `.results` wrapper is `overflow-x: auto`; at 1280px the issue table (Count/Last seen/First
+  seen/Status/Trend) is wider than the wrapper's visible area (measured: `scrollWidth` 893 vs.
+  `clientWidth` 631 against the seeded demo), and Playwright's `full_page=True` only extends the
+  *vertical* capture, so the Status and Trend/sparkline columns — the two columns this screenshot
+  exists to show off per T4's design — were silently clipped out of the first attempt. 1600px was
+  the first width measured (1440/1600/1920 tried) at which `.results`' `scrollWidth` no longer
+  exceeds its `clientWidth`, i.e. the table renders with no internal scrolling — alternatives: a
+  narrower fixed-width table/CSS change (would also change the live admin UI, out of scope for a
+  screenshot-only problem), scrolling `.results` programmatically before capture and stitching two
+  screenshots (more code for a problem a wider viewport solves in one line).
+
+
+## p08-review_fix1
+
+- [p08/review_fix1] Moved Celery/Extra out of `request.html`'s `{% if ae_payload.request %}` guard
+  into a new `includes/context_blocks.html`, included from both `change_form.html` and
+  `event_detail.html` at the same level as `request.html` — why: REVIEW-r1 MAJOR finding, Celery
+  task errors and `capture_message()` calls have `celery`/`extra` but no `request` key, so the
+  blocks never rendered for exactly the payloads they exist to serve — alternatives: nest a second
+  `{% if ae_payload.celery or ae_payload.extra %}` inside `request.html` and duplicate the
+  `view_issue_context` gate there too (rejected: keeps two unrelated concerns coupled in one
+  include, easy to regress the same way again).
+- [p08/review_fix1] `.ae-issue-type`, `.ae-sparkline`/`.ae-bar-chart` (stroke via `currentColor`)
+  and `.ae-bar` (fill) switched from `var(--primary)` to `var(--link-fg)`; `.ae-badge--open` from
+  `border-color:var(--primary);color:var(--primary)` to `border-color:var(--border-color);
+  color:var(--body-fg)` — why: REVIEW-r1 MAJOR finding, `--primary` is a background swatch in
+  Django's own admin CSS (`#79aec8` light / `#264b5d` dark), never body text; contrast against
+  `--body-bg` measured 2.41:1 light / 1.72:1 dark, both far below WCAG 4.5:1. `--link-fg` (`#417893`
+  light / `#81d4fa` dark) and `--border-color` are documented admin theme variables with the same
+  "follows the admin's own palette" property, confirmed present in the installed Django's
+  `base.css`/`dark_mode.css` for every supported version range — alternatives: a hand-picked
+  hex fallback (rejected: reintroduces a hard-coded colour, exactly what T11's
+  `test_css_uses_no_hard_coded_colours` and this same review section warn against). Re-ran
+  `e2e/test_screenshots.py` against a freshly booted demo server and visually confirmed all four
+  PNGs; ran the rest of `e2e/` (18/18 green) since the templates also changed.
+- [p08/review_fix1] Split `test_search_matches_title_type_and_culprit` into
+  `test_search_matches_title` / `test_search_matches_exception_type` / `test_search_matches_culprit`,
+  and added the paired negative assertion (`... not in body`) to those plus `test_filter_by_status`,
+  `test_filter_by_level`, `test_filter_by_exception_type` — why: REVIEW-r1 MAJOR finding, all four
+  asserted presence only, so a silently-ignored filter/search field (renamed `parameter_name`,
+  dropped `search_fields` entry) could not fail any of them — alternatives: none considered, this is
+  the minimal fix the finding names.
+- [p08/review_fix1] Wrote the PLAN.md T12-named test
+  `tests/test_demo.py::test_demo_seed_creates_a_view_only_viewer`, running `demo_seed --reset` twice
+  and asserting exactly one `viewer` user, `is_staff`, not superuser, permissions exactly
+  `{view_issue}` — why: REVIEW-r1 MAJOR finding, T12 was checked off naming a test that did not
+  exist; `demo_seed._ensure_viewer()` had no unit coverage at all — alternatives: uncheck T12 and
+  defer (rejected: the fix is a five-line test against an already-idempotent, already-implemented
+  command; nothing blocks writing it now).
+- [p08/review_fix1] Deleted the `?event=` / `ae_selected_event` branch in `change_view` entirely
+  (change_view now always shows `issue.last_event`) instead of finishing the feature — why:
+  REVIEW-r1 MINOR finding confirmed the branch is unreferenced by any template or test and 500s on
+  a non-integer id; no spec or PLAN acceptance criterion names a way to browse to an arbitrary past
+  event from the *issue* detail page (the dedicated `admin_errors_issue_event` URL already covers
+  "view one event's payload") — alternatives: finish the feature (rejected: net-new UI/URL surface
+  not asked for by spec §12.3 or PLAN.md, scope creep per risk #15).
+- [p08/review_fix1] `change_view` now redacts each event's payload individually
+  (`event.ae_payload = _redact_payload(event.payload, can_view_context)`) before it reaches
+  `occurrences.html`, which now reads `event.ae_payload` instead of `event.payload` — why: REVIEW-r1
+  MINOR finding, the events table was relying solely on the template-level `{% if perms... %}` gate,
+  contradicting the documented double-gate invariant (`_redact_payload`'s docstring, ADR 0007 risk
+  #2, this same PLAN.md); today's behaviour was already correct (existing
+  `test_view_issue_only_hides_context` already covers the rendered table and continues to pass), so
+  this closes the second line of defence without changing any user-visible output — no new test
+  added beyond the already-passing coverage, since there was no observable regression to pin down.
+- [p08/review_fix1] Deleted `admin_errors.js`'s `querySelectorAll(".ae-frame--in-app")` loop instead
+  of moving it into a `DOMContentLoaded` handler — why: REVIEW-r1 MINOR finding, the loop is dead
+  (script loads in `<head>` with no `defer`, body isn't parsed yet) *and* redundant — CSS already
+  shows in-app frame context/locals by default (only `.ae-frame--library` is hidden by default), so
+  there is nothing left for the JS to do even if it ran — alternatives: wrap it in
+  `DOMContentLoaded` (rejected: would resurrect a no-op, since the CSS already achieves the same
+  default-expanded state for in-app frames with zero JS).
+- [p08/review_fix1] Replaced `test_admin_site_false_skips_registration`'s tautological
+  `_resolve_site() is None` assertion with a new `test_admin_site_false_skips_default_registration_subprocess`
+  that boots a fresh interpreter (`subprocess.run([sys.executable, "-c", ...])`) with
+  `DJANGO_SETTINGS_MODULE=tests.settings` and a new test-only env var
+  `ADMIN_ERRORS_TEST_ADMIN_SITE_FALSE=1` (read by `tests/settings.py` to set `ADMIN_ERRORS["ADMIN_SITE"]
+  = False` before `django.setup()`), then asserts `Issue not in django_admin.site._registry` — why:
+  REVIEW-r1 MINOR finding, the default `AdminConfig.ready()` calls `autodiscover()` at
+  `django.setup()` time, which already ran once per test *process* before any `override_settings`
+  block could apply, so no in-process test can observe the default site skipping registration;
+  proving it needs a cold boot — alternatives: extract the import-time tail into a function and call
+  it directly against a throwaway `AdminSite()` (rejected: a throwaway site was never registered by
+  anything either way, so the assertion would be true regardless of `ADMIN_SITE`, proving nothing
+  about the actual default-site behaviour the finding is about).
+- [p08/review_fix1] Parametrized `test_bulk_actions_update_rows` over
+  resolve/ignore/reopen (`reopen` starting from `Issue.Status.RESOLVED` with a fixed `resolved_at`,
+  asserting it survives the bulk transition) instead of adding a fourth near-duplicate test function
+  — why: REVIEW-r1 MINOR finding, PLAN T9 promised bulk reopen coverage that was never written;
+  parametrizing keeps the three actions' shared assertions (`follow=True`, refresh, status check) in
+  one place — alternatives: three separate test functions (rejected: more duplication for the same
+  coverage).
+
+
+
+## p08-review_fix2
+
+- [p08/review_fix2] Satisfied ARCHITECTURE's sparkline/bar-chart accessibility rule by dropping
+  `aria-hidden="true"` and giving both SVGs an `aria-label` built from `_series_label()` (date:value
+  pairs for every point) instead of the plain "per day (UTC)" string, rather than adding a parallel
+  visually-hidden text block — why: REVIEW-r2 MAJOR finding, the rule requires an aria-label stating
+  the numbers *and* the numbers reachable as text; an aria-label already satisfies both (exposed via
+  the accessibility tree as text) with a one-function change, vs. duplicating the series as hidden
+  markup in every template that includes the sparkline/chart — alternatives: visually-hidden `<ul>`
+  next to each SVG (rejected: more markup, more places to keep in sync, no accessibility gain over
+  the aria-label for this widget).
+- [p08/review_fix2] Added `aria-expanded`/`aria-controls` to `.ae-frame-toggle` in `frame.html`
+  (`true` for in-app frames, `false` for library frames — matches their actual default visibility)
+  and synced `aria-expanded` from `admin_errors.js`'s click handler — why: REVIEW-r2 MAJOR finding,
+  ARCHITECTURE names this control by name. The frame-context `<pre>` id (and the button's
+  `aria-controls`) is built from `forloop.parentloop.counter`-`forloop.counter` (exception-block
+  index, frame index) since template includes share the enclosing context and frame ids need to be
+  unique only across one detail page — alternatives: a global counter variable threaded through
+  `ae_traceback_blocks` (rejected: the loop-based id needs no template-tag change and is already
+  unique for this page's only two nested loops).
+- [p08/review_fix2] Marked `e2e/test_screenshots.py::test_generates_light_and_dark_screenshots`
+  `@pytest.mark.screenshots` and added `-m 'not screenshots'` to the global pytest `addopts` — why:
+  REVIEW-r2 MINOR finding, the plain `uv run --extra e2e pytest e2e -q` (used by the acceptance
+  criteria and CI) rewrote four tracked PNGs on every run since `make e2e-up` reseeds with a fresh
+  random seed; regenerating the screenshots is now the explicit opt-in `pytest e2e -m screenshots`
+  — alternatives: write to a temp dir by default behind an `AE_WRITE_SCREENSHOTS=1` env var
+  (rejected: marker + addopts is the standard pytest mechanism, needs no new env var convention).
+- [p08/review_fix2] Reworded the CHANGELOG's JS claim from "frame collapse and the locals `<details>`
+  toggle both work with JS disabled" to state that only the locals toggle is JS-free and that
+  expanding a collapsed library frame requires JS — why: REVIEW-r2 MINOR finding, `admin_errors.css`
+  permanently hides library-frame context/locals with no non-JS fallback, so the original claim was
+  the opposite of reality — alternatives: make frame collapse JS-free via a second `<details>`
+  wrapper (rejected: bigger template/CSS change than a one-line fix warrants for a round-2 minor;
+  the aria-expanded fix above already gives the control proper ARIA state regardless).
+- [p08/review_fix2] Guarded `signals.issue_status_changed`'s `send_safely()` call in `_apply_status`
+  with `if old_status != new_status:`, keeping the `UPDATE` (and `resolved_at`/`resolved_by`
+  refresh) unconditional — why: REVIEW-r2 MINOR finding, resolving an already-resolved issue (or
+  bulk-resolving a selection that includes already-resolved rows) fired a spurious "changed" signal
+  with identical old/new status; added the negative assertion to
+  `test_repeated_resolve_is_idempotent` (no signal on the second resolve) rather than a new test
+  function, since it is the same scenario the existing test already sets up — alternatives: none,
+  this is the fix the finding names.
+- [p08/review_fix2] Updated PLAN.md's verification table (search-field row, `ADMIN_SITE=False` row)
+  and T14's visual-check note to name the tests/re-check that actually exist post round-1 — why:
+  REVIEW-r2 MINOR finding, the table still named a test deleted in `review_fix1`
+  (`test_search_matches_title_type_and_culprit`) and a test that proves less than the criterion
+  claims; no code change, docs-only.
+
+
+## p08-e2e
+
+- [p08-e2e] Closed REVIEW-r2-audit.md's remaining MINOR finding (JS `aria-expanded` sync on
+  `.ae-frame-toggle` had no test) by asserting `aria-expanded` flips `"false"` → `"true"` around the
+  click in `e2e/test_admin_ui.py::test_detail_traceback_collapsed_library_frame`, and noted it in
+  the plan's oracle — why: the product code was already correct (audit approved round 2), this was
+  purely a regression-coverage gap the audit flagged but did not block on — alternatives: a
+  dedicated new test function (rejected: same scenario the existing case already drives, no need
+  for a second page load).
+- [p08-e2e] Verified the full e2e cycle against the orchestrator-started demo server rather than
+  re-running `make e2e-up`/`e2e-down` myself (both forbidden this step): `uv run --extra e2e pytest
+  e2e -q` → 17 passed, 1 deselected (screenshots, opt-in via `-m screenshots` since review_fix2);
+  `uv run pytest -q` → 307 passed, 8 skipped; ruff clean on `e2e/`. No new product bugs found —
+  phase 8's e2e layer, screenshots and permission/regression cases were already built and reviewed
+  to approval in prior p08-implement/review sessions — why: this step's job was to confirm the
+  already-shipped harness still holds and close the one dangling audit note — alternatives: none,
+  nothing else was outstanding.
+
+## p08-docs
+
+- [p08/docs] Fixed two stale claims in README.md's "Try it" section ("no admin UI of its own yet"
+  and "regressed badge ... Phase 8/9 addition and not yet observable") to say the admin UI and the
+  Regressed badge now exist and work, leaving only the notification email as a Phase 9 addition —
+  why: both statements were true when written (pre-Phase 8) and are now false, since this phase
+  ships `admin.py` and the templates; the code wins over the doc per this step's rules — alternatives:
+  leave them (rejected: a doc that contradicts the code is worse than no doc). No other file needed a
+  change: CLAUDE.md's commands/layout/pitfalls already covered the admin UI (N+1/Prefetch, query
+  budgets) pre-emptively from an earlier phase and still match; CHANGELOG.md's Unreleased entry for
+  this phase was already written and accurate during implementation/review; `docs/dev/` was left
+  without new pages (architecture.md/testing.md/etc. do not exist for any prior phase either — this
+  project keeps that material in `.autodev/ARCHITECTURE.md` and `docs/dev/adr/`, per CLAUDE.md's own
+  Layout section, which lists only `docs/dev/adr/`); `docs/user/` was not created, since PLAN.md's own
+  Out-of-scope list defers the "README UI section, FAQ, manual QA script" to Phase 10; ADR 0005/0007
+  already describe the shipped design (registration, CSS variables, double permission gating) with no
+  contradiction to mark superseded.
+

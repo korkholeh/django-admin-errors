@@ -1,0 +1,13 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block field_sets %}
+  {% include "admin/admin_errors/issue/includes/header.html" %}
+  {% include "admin/admin_errors/issue/includes/traceback.html" %}
+  {% include "admin/admin_errors/issue/includes/request.html" %}
+  {% include "admin/admin_errors/issue/includes/context_blocks.html" %}
+  {% include "admin/admin_errors/issue/includes/occurrences.html" %}
+  {% include "admin/admin_errors/issue/includes/server.html" %}
+{% endblock %}
+
+{% block submit_buttons_bottom %}{% endblock %}

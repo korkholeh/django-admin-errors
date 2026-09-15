@@ -1,0 +1,17 @@
+{% load i18n %}
+{% if ae_cards %}
+<div class="ae-cards">
+  <div class="ae-card">
+    <span class="ae-card-value">{{ ae_cards.unresolved }}</span>
+    <span class="ae-card-label">{% translate "Unresolved issues" %}</span>
+  </div>
+  <div class="ae-card">
+    <span class="ae-card-value">{{ ae_cards.events_24h }}</span>
+    <span class="ae-card-label">{% translate "Events last 24h" %}</span>
+  </div>
+  <div class="ae-card">
+    <span class="ae-card-value">{{ ae_cards.new_24h }}</span>
+    <span class="ae-card-label">{% translate "New issues last 24h" %}</span>
+  </div>
+</div>
+{% endif %}

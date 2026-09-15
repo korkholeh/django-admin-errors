@@ -37,6 +37,36 @@ def base_url() -> str:
     return E2E_BASE_URL
 
 
+def login(page, base_url: str, username: str, password: str) -> None:
+    """Log `page` in through the real admin login form and land on the admin index."""
+    page.goto(f"{base_url}/admin/login/")
+    page.fill("#id_username", username)
+    page.fill("#id_password", password)
+    page.click("input[type=submit]")
+    page.wait_for_url(f"{base_url}/admin/")
+
+
+def wait_until(
+    page, url: str, predicate, *, timeout_seconds: float = 10.0, poll_seconds: float = 0.5
+):
+    """Reload `url` until `predicate(page)` is true, instead of a fixed sleep.
+
+    The demo runs `TRANSPORT="thread"` (PROFILE.md), so a just-captured occurrence reaches the
+    database on the writer thread's flush interval, not synchronously with the request that
+    produced it. Raises `AssertionError` if `predicate` never holds within the timeout.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        page.goto(url)
+        if predicate(page):
+            return
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"condition not met on {url} within {timeout_seconds}s")
+        page.wait_for_timeout(int(poll_seconds * 1000))
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # Capture an artifact on failure at minimum (screenshots), and keep them out of the repo tree
     # the developer usually looks at. No-op when pytest-playwright is not installed.
