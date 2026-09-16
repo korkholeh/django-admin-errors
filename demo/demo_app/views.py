@@ -107,14 +107,29 @@ def _raise_storm_error(i):
 
 
 def storm(request):
+    """Aggregate `n` occurrences of one error.
+
+    `?tag=<value>` overrides the fingerprint with `demo-storm-<tag>` (spec section 8.3). The
+    sampling budget of `EVENT_SAMPLE_PER_HOUR` is a per-fingerprint, *process-local* token bucket
+    (`admin_errors.capture._sample_buckets`) that no database delete resets, so a second storm on
+    the same fingerprint within the hour stores counters and no events at all — intended
+    behaviour, pinned by
+    `tests/test_demo.py::test_reset_rate_limits_clears_the_sample_bucket`. A caller that needs a
+    storm to sample afresh passes a tag it has not used before — cheaper and more surgical than
+    `/test/reset-rate-limits/`, which clears every bucket including the new-issue admission one.
+    Without a tag the default fingerprint is kept, so `/storm/?n=1000` still demonstrates
+    aggregation as spec section 13 describes.
+    """
     n = _clamp_n(request, 1000)
+    tag = request.GET.get("tag") or ""
+    fingerprint = f"demo-storm-{tag}" if tag else None
     start = time.monotonic()
     fp = None
     for i in range(n):
         try:
             _raise_storm_error(i)
         except DemoStormError:
-            fp = api.capture_exception()
+            fp = api.capture_exception(fingerprint=fingerprint)
     elapsed = time.monotonic() - start
     return JsonResponse({"n": n, "elapsed_seconds": elapsed, "fingerprint": fp})
 

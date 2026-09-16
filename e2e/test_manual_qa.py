@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -158,8 +159,18 @@ def test_storm_is_fast_and_stores_few_events(page, base_url, server_available) -
     query = "DemoStormError"
     _delete_existing_issue(page, base_url, query)
 
+    # A fingerprint this server process has never sampled, so the run gets a full
+    # `EVENT_SAMPLE_PER_HOUR` budget. `EVENT_SAMPLE_PER_HOUR` is a per-fingerprint, *process-local*
+    # token bucket (`admin_errors.capture._sample_buckets`); deleting the issue above clears the
+    # database row but not that bucket. `make e2e-up` reuses an already-answering server, so on a
+    # second run of this suite against the same process the default storm fingerprint has no tokens
+    # left and every occurrence arrives count-only: the issue is recreated with its counter (spec
+    # section 7.2 step 5) and zero stored events, failing the assertion below for a reason that is
+    # correct behaviour rather than a regression.
+    tag = uuid.uuid4().hex
+
     start = time.monotonic()
-    response = page.request.get(f"{base_url}/storm/?n=5000")
+    response = page.request.get(f"{base_url}/storm/?n=5000&tag={tag}")
     wall_clock_seconds = time.monotonic() - start
     assert response.ok, f"storm request failed: {response.status}"
     body = response.json()

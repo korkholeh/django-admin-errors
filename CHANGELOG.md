@@ -8,7 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- Demo: `/storm/` accepts `?tag=<value>`, which fingerprints the burst as `demo-storm-<tag>`
+  instead of grouping it with every earlier storm. The end-to-end storm case now passes a fresh
+  tag per run, so it no longer fails on a second run against a reused `runserver` process, where
+  the per-fingerprint `EVENT_SAMPLE_PER_HOUR` bucket — process-local, and not reset by deleting
+  the issue — had no tokens left and every occurrence arrived count-only. Test-only defect; the
+  library behaved as specified (spec section 7.2 step 5) throughout.
 
 ## [0.1.0] — 2026-09-16
 
