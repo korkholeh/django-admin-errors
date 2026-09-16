@@ -54,6 +54,7 @@ DEFAULTS: dict[str, object] = {
     "NOTIFY_RECIPIENTS": None,
     "NOTIFY_THROTTLE_SECONDS": 3600,
     "NOTIFY_ON": ["created", "regressed"],
+    "NOTIFY_BASE_URL": "",
     "ADMIN_SITE": None,
     "INTERNAL_LOGGING": False,
 }

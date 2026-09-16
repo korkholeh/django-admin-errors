@@ -18,13 +18,14 @@ class AdminErrorsConfig(AppConfig):
         from django.core.checks import Tags, register
         from django.core.signals import got_request_exception
 
-        from admin_errors import checks, signals
+        from admin_errors import checks, notifications, signals
         from admin_errors.conf import settings as admin_errors_settings
 
         register(checks.check_settings_keys, Tags.compatibility)
         register(checks.check_sqlite_version, Tags.compatibility)
         register(checks.check_database_alias, Tags.compatibility)
         register(checks.check_logging_propagation, Tags.compatibility)
+        register(checks.check_mail_admins_overlap, Tags.compatibility)
 
         if admin_errors_settings.AUTO_INSTALL_LOGGING_HANDLER:
             self._install_logging_handler()
@@ -33,6 +34,8 @@ class AdminErrorsConfig(AppConfig):
             signals.mark_request_on_exception,
             dispatch_uid="admin_errors.mark_request_on_exception",
         )
+
+        notifications.refresh_connections()
 
         if importlib.util.find_spec("celery") is not None:
             from admin_errors.integrations import celery as celery_integration

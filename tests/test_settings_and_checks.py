@@ -50,6 +50,7 @@ EXPECTED_DEFAULTS = {
     "NOTIFY_RECIPIENTS": None,
     "NOTIFY_THROTTLE_SECONDS": 3600,
     "NOTIFY_ON": ["created", "regressed"],
+    "NOTIFY_BASE_URL": "",
     "ADMIN_SITE": None,
     "INTERNAL_LOGGING": False,
 }
@@ -72,6 +73,13 @@ def test_override_settings_is_visible_and_reverts():
         assert settings.EVENTS_PER_ISSUE == 3
         assert settings.ENABLED is True  # other keys still fall back to their default
     assert settings.EVENTS_PER_ISSUE == 20
+
+
+def test_notify_base_url_default():
+    assert settings.NOTIFY_BASE_URL == ""
+    with override_settings(ADMIN_ERRORS={"NOTIFY_BASE_URL": "https://errors.example.com"}):
+        assert settings.NOTIFY_BASE_URL == "https://errors.example.com"
+        assert [m for m in run_checks() if m.id == checks.W001_ID] == []
 
 
 def test_unknown_attribute_raises_attribute_error():
@@ -189,3 +197,79 @@ def test_w002_silent_when_admin_errors_handler_declared_via_factory_key():
     with override_settings(LOGGING=logging_config):
         messages = [m for m in run_checks() if m.id == checks.W002_ID]
     assert messages == []
+
+
+def test_w003_mail_admins_overlap():
+    logging_config = {
+        "version": 1,
+        "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
+        "root": {"handlers": ["mail_admins"], "level": "ERROR"},
+    }
+    with override_settings(LOGGING=logging_config):
+        messages = [m for m in run_checks() if m.id == checks.W003_ID]
+    assert len(messages) == 1
+    assert isinstance(messages[0], Warning)
+
+
+def test_w003_silent_when_notify_backend_none():
+    logging_config = {
+        "version": 1,
+        "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
+        "root": {"handlers": ["mail_admins"], "level": "ERROR"},
+    }
+    with override_settings(LOGGING=logging_config, ADMIN_ERRORS={"NOTIFY_BACKEND": None}):
+        messages = [m for m in run_checks() if m.id == checks.W003_ID]
+    assert messages == []
+
+
+def test_w003_silent_when_handler_unreferenced():
+    logging_config = {
+        "version": 1,
+        "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
+    }
+    with override_settings(LOGGING=logging_config):
+        messages = [m for m in run_checks() if m.id == checks.W003_ID]
+    assert messages == []
+
+
+def test_w003_silent_with_no_logging_setting():
+    assert [m for m in run_checks() if m.id == checks.W003_ID] == []
+
+
+def test_w003_tolerates_malformed_logging_shapes():
+    """review r1 nit: a host mid-edit of `LOGGING` may have handlers/loggers/root as the wrong
+    type; `check_mail_admins_overlap` must report [] rather than raise. Calls the check function
+    directly (not `run_checks()`) since some of these malformed shapes also break the unrelated,
+    pre-existing `check_logging_propagation` (W002), which is out of scope for this fix."""
+    for logging_config in (
+        {"version": 1, "handlers": ["not", "a", "dict"]},
+        {
+            "version": 1,
+            "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
+            "root": "not-a-dict",
+        },
+        {
+            "version": 1,
+            "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
+            "loggers": {"django.request": "not-a-dict"},
+        },
+        {
+            "version": 1,
+            "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
+            "root": {"handlers": "not-a-list"},
+        },
+        "not-a-dict-at-all",
+    ):
+        with override_settings(LOGGING=logging_config):
+            assert checks.check_mail_admins_overlap() == []
+
+
+def test_w003_triggers_via_a_named_logger_not_only_root():
+    logging_config = {
+        "version": 1,
+        "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
+        "loggers": {"django.request": {"handlers": ["mail_admins"], "level": "ERROR"}},
+    }
+    with override_settings(LOGGING=logging_config):
+        messages = [m for m in run_checks() if m.id == checks.W003_ID]
+    assert len(messages) == 1

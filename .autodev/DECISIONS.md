@@ -1023,3 +1023,216 @@ so `grep -n '^## '` is the index and a session can read only the part it needs.
   already describe the shipped design (registration, CSS variables, double permission gating) with no
   contradiction to mark superseded.
 
+
+## p09-plan
+
+
+- [p09/plan] The notifier's receivers are **connected and disconnected dynamically** by
+  `notifications.refresh_connections()` (called from `apps.ready()` and from a `setting_changed`
+  receiver that resets `conf.settings` first), gated on `NOTIFY_BACKEND is not None`, the reason being
+  in `NOTIFY_ON`, and `_recipients()` being non-empty — why: `storage._fire` deliberately skips
+  re-reading the `Issue` row while `signal.has_listeners()` is `False` (p04-plan), so an always-on
+  dispatcher would add a `SELECT` to the create path of every aggregate in every test and eat into the
+  `test_storage.py` budgets (15/7/8), which must never be relaxed; dynamic connection keeps
+  `NOTIFY_BACKEND=None` and the recipient-less default test host at exactly zero cost while
+  `override_settings` still works — alternatives: one always-on dispatcher resolving the backend per
+  call (simpler, but costs a query per new issue and pressures a frozen budget), connect once in
+  `ready()` from the boot-time setting only (`override_settings` in tests would not take effect).
+- [p09/plan] New module `src/admin_errors/textformat.py` holds
+  `format_traceback_text(payload, *, include_locals=False, max_frames=None)`, shared by the email body
+  (frames only, no locals) and the admin "Copy as text" block — why: both consumers need the same
+  renderer and neither layer should import the other (the admin would otherwise import the mail layer,
+  or the mail layer the template-tag layer); it is a deviation from the module table in
+  `ARCHITECTURE.md`/spec §4, which lists neither a formatter nor a home for one — alternatives: put it
+  in `notifications.py` (admin imports the mail layer), put it in
+  `templatetags/admin_errors_tags.py` (the notifier imports a template-tag module), duplicate ~25
+  lines in both (two renderers to drift, and the gating rule would live in two places).
+- [p09/plan] "Copy as text" is gated twice: the text is built from the payload that
+  `_redact_payload()` has already stripped for a `view_issue`-only user, **and**
+  `include_locals=can_view_context` is passed explicitly — why: ADR 0007 and risk #2 require the view
+  and the render to gate independently, and this block is a second rendering of the same payload —
+  alternatives: rely on the redacted payload alone (one missed key in `_GATED_REQUEST_KEYS` becomes a
+  leak in a plain-text blob that is trivially copy-pasteable).
+- [p09/plan] The subject prefix is `Site.objects.get_current().name` when `django.contrib.sites` is
+  installed (wrapped, falling back on any exception) and `socket.gethostname()` otherwise — why: spec
+  §10 writes `[<SITE or hostname>]` without naming a mechanism, and this is the only "SITE" Django
+  itself defines; the test host installs no `sites` app, so the hostname branch is what the suite
+  exercises — alternatives: a new `NOTIFY_SUBJECT_PREFIX` setting (spec §5 fixes the key list),
+  reuse `EMAIL_SUBJECT_PREFIX` (Django already prepends it for `mail_admins`, so it would double up).
+- [p09/plan] `notify()` returns early with no database write when no recipients resolve
+  (`NOTIFY_RECIPIENTS` empty and `ADMINS` empty) — why: moving `notified_at` for a mail that can never
+  be sent would silently burn the throttle window for the first worker that ever configures `ADMINS`
+  — alternatives: update first and then discover there is nobody to mail.
+- [p09/plan] The admin URL line is built inside `try/except NoReverseMatch` and omitted on failure
+  rather than aborting the mail — why: a host running `ADMIN_SITE=False`, or not installing the admin
+  at all, still wants the notification — alternatives: let `NoReverseMatch` propagate (the whole mail
+  is lost, and the throttle has already been consumed).
+- [p09/plan] Catalogue completeness is asserted by a ~25-line `.po` reader inside
+  `tests/test_admin.py` (every non-header `msgid`, plurals included, has a non-empty `msgstr`), and
+  `makemessages` is **not** run from the test suite — why: running it in-suite would make the gate
+  depend on GNU gettext being installed on every matrix cell and in CI, while the committed catalogue
+  is the artifact that actually ships; the empty-diff `makemessages` run stays a manual step in the
+  implement phase — alternatives: a `subprocess` `makemessages` test (external-tool dependency, and
+  the first cell without gettext turns green only by skipping), add `polib` as a test dependency (a
+  new dependency for 25 lines).
+- [p09/plan] The i18n tests and the copy-as-text tests go into `tests/test_admin.py` rather than a new
+  `tests/test_i18n.py` — why: spec §14.2 fixes the test-module inventory and both concerns are the
+  admin surface, consistent with the p08-plan decision that kept template-tag tests there —
+  alternatives: a new module the spec's inventory does not know about.
+
+## p09-implement
+
+- [p09/implement] T1-T11 implemented and green (conf.py NOTIFY_BASE_URL, textformat.py,
+  notifications.py + apps.ready() wiring, checks.py W003, admin.py "Copy as text" + JS/CSS, bulk
+  status-change signal coverage, i18n sweep found nothing missing, uk locale catalogue generated
+  and translated, i18n tests) — why: session context ran out before T12 (e2e) / T13 (CHANGELOG +
+  full gate incl. e2e); the tree is green on `uv run pytest -q` and the 4-command lint gate, so a
+  fresh session can resume at T12 without repairing anything — alternatives: none, straightforward
+  continuation point.
+- [p09/implement] `notifications.py`'s own `setting_changed` receiver calls `conf.reset()`, not
+  `conf.settings.reset()` — why: `admin_errors.conf` is imported here as `from admin_errors.conf
+  import settings as conf`, so `conf` **is** the `Settings` instance (mirrors every other module in
+  this codebase); the design note in PLAN.md phrased it as `conf.settings.reset()` using the
+  fully-qualified module path, not this file's local alias — alternatives: none, this is just the
+  aliasing convention already used everywhere else (`admin.py`, `checks.py`, `storage.py`).
+- [p09/implement] `uk` catalogue translated by hand (95 msgids, no plural forms exist anywhere in
+  the codebase — no `ngettext` call) rather than via any external translation service — why: CLAUDE.md
+  forbids network calls outside the sanctioned toolchain and there is no vetted MT service in this
+  repo's stack; a native/fluent-level pass is out of scope for an autonomous session — alternatives:
+  leave `msgstr` empty (fails T11's completeness test by design), machine-translate via an external
+  API (network dependency, unreviewable quality, no consent for a third-party call).
+- [p09-implement/T12] `e2e/test_notifications_i18n.py`'s notification case targets `/keyerror/<key>/`
+  by culprit (`demo_app.views.keyerror`), not by the literal key text, and deliberately shares the
+  underlying `Issue` row with `admin-ui.plan.yaml`'s own `resolve-then-rehit-regressed-badge` case
+  — why: `fingerprint.normalize_message` (ADR 0003, frozen) collapses any quoted substring to
+  `<str>`, and `KeyError.__str__` is a repr of its argument, so every `/keyerror/<key>/` hit, for
+  any key, hashes to the same fingerprint; a first design that searched the admin list by a unique
+  key text found zero rows even though the capture had actually succeeded, because the issue's
+  title (fixed at first occurrence) never contained that key — alternatives: add a new demo view
+  that raises with an unquoted, non-numeric message per call (touches production demo code for a
+  test-only need, rejected), assert only against `mail.outbox`-style unit coverage and drop the
+  browser case (fails PLAN.md's explicit T12 commitment).
+- [p09-implement/T12] The same case retries the *request* itself (`_hit_until_admitted`), not only
+  the list-page reload `wait_until` already does — why: a first occurrence of a brand-new
+  fingerprint can be silently dropped by the `NEW_ISSUES_PER_MINUTE` token bucket (capture.py's
+  `_admit_fingerprint`, no log line by design) when `demo-app-surface`'s `/unique-storm/?n=200`
+  case has just run in the same `runserver` process and drained it; reloading the list alone can
+  never recover from a drop, only re-firing the causing request can, and the bucket refills fast
+  enough (~1.2s per token from empty) that a bounded retry loop converges well inside 30s regardless
+  of file execution order — alternatives: order e2e files so notifications-i18n always runs before
+  demo-app-surface (fragile, breaks if a new file is added alphabetically between them), lower
+  `NEW_ISSUES_PER_MINUTE` or raise it in the demo's `ADMIN_ERRORS` dict (masks the real admission
+  contract instead of making the test robust to it). Proved via a from-scratch `make e2e-up` +
+  `uv run --extra e2e pytest e2e -q`, twice, and once with `e2e/test_notifications_i18n.py` alone
+  (no priming from other files) — all green.
+
+
+## p09-review_fix1
+
+- [p09-review_fix1/major1] `traceback.html` now gates "Copy as text" locals with its own `{% if ae_can_view_context and perms.admin_errors.view_issue_context %}`, mirroring `frame.html`. `admin.py`'s `change_view`/`event_detail_view` now build two context values — `ae_traceback_text` (always `include_locals=False`) and `ae_traceback_text_context` (`include_locals=True`, only computed when `can_view_context`) — and the template picks between them — why: review r1 major #1 — both gates previously lived in `admin.py` (redacted payload + `include_locals=can_view_context`), so the include itself had no gate of its own, exactly the "a permission on a view is not a permission on a template include" failure ADR 0007 names; added `test_copy_as_text_template_gates_itself_even_if_the_view_leaks_context` in `tests/test_admin.py`, which renders the include directly with a permission-less user and a deliberately-leaked `ae_traceback_text_context` carrying `SECRET_LOCAL`, and asserts it never reaches the output — alternatives: a `takes_context=True` template tag reading `context["perms"]` itself (review's alternative; rejected as a bigger surface change than mirroring the existing `frame.html` pattern for equivalent safety).
+- [p09-review_fix1/major2] `notifications._sync_connection()` no longer calls `EmailNotifier`'s `_recipients()` directly; it resolves `conf.NOTIFY_BACKEND` via `import_string` (disabled on `ImportError`/`AttributeError`) and calls an optional `is_enabled()` hook on the backend class, defaulting to `True` when the hook is absent. Added `EmailNotifier.is_enabled()` (`bool(_recipients())`). Added `test_custom_notify_backend_is_used_without_admins_or_recipients` (`ADMINS=[]`, `NOTIFY_RECIPIENTS=None`, custom backend) asserting the receiver still connects and fires — why: review r1 major #2 — gating the generic `NOTIFY_BACKEND` extension point on an `EmailNotifier`-specific recipient list silently disabled any non-email custom backend unless a host also configured `ADMINS`, which spec §10/§5 never require of a custom backend; the existing custom-backend test only passed because of the autouse `_admins` fixture — alternatives: none, matches the review's suggested fix.
+- [p09-review_fix1/minor-rejected] Left `notified_at` uncleared on resolve (MINOR #3, "regression after an explicit resolve is silently throttled within the window") — why: the reviewer itself calls this spec-literal (spec §10: "send only if `issue.notified_at` is None or older than `NOTIFY_THROTTLE_SECONDS`") and not a blocker; clearing `notified_at` in `_apply_status()` on RESOLVED would flip `test_throttle_suppresses_second_notification_inside_window` (an existing, explicit T4 acceptance-criterion test: "second occurrence inside the window → none") to send a mail, i.e. fixing this MINOR would require weakening or rewriting an already-passing spec-mandated test, which CLAUDE.md/this step's instructions forbid ("never weaken a test"). Documenting here per the reviewer's own fallback ("or leave the behaviour and document it explicitly") — Phase 10's README/FAQ should note that resolving an issue does not reset its notification throttle, so a regression within `NOTIFY_THROTTLE_SECONDS` of the original notification stays silent — alternatives: clear `notified_at` on resolve (breaks the spec-literal throttle test), leave both undocumented (the reviewer's dispreferred option).
+- [p09-review_fix1/minor1] Asserted the `[{socket.gethostname()}] ` subject prefix in `test_new_issue_sends_one_email_to_admins`, and added `test_notify_base_url_is_prefixed_onto_the_admin_link` (`override_settings(ADMIN_ERRORS={"NOTIFY_BASE_URL": "https://errors.example.com"})`, asserts the prefixed admin URL in the body) — why: review r1 minor #4 — PLAN.md T4 committed to asserting both and neither was actually checked. Skipped the reviewer's *optional* `_prefix()` Site-branch unit test (patching `django.apps.apps.is_installed`) as out of scope for a "small and safe" fix pass — alternatives: none for the two required assertions; the optional Site-branch test left for a future round if desired.
+- [p09-review_fix1/minor2] `e2e/test_notifications_i18n.py`'s `_server_log_contains` now takes a `since` byte offset and seeks to it before searching, and the notification test captures `_server_log_offset()` immediately before `_hit_until_admitted` — why: review r1 minor #5 — reading the whole server log let a stale "New issue: KeyError demo_app.views.keyerror" line from an earlier run (the shared-fingerprint design, `p09-implement/T12`) satisfy the assertion on the normal idempotent `make e2e-up` re-run path with no mail actually sent this run — alternatives: none, matches the review's suggested fix; not re-verified against a live `make e2e-up` run this session (no server was started for this fix pass — see `p09-review_fix1/note1`).
+- [p09-review_fix1/minor3] `admin_errors.js`'s copy button now reads its original label from a `data-ae-label` attribute set once on first use (not `button.textContent` inside the `.then()`, which could already be "Copied" on a rapid second click), clears any pending revert timer before starting a new one, sets/clears a `data-ae-copied-state="1"` attribute alongside the label swap, and the clipboard promise chain gets a `.catch()` so a rejected `writeText()` (unfocused document, denied permission) no longer produces an unhandled rejection — why: review r1 minor #6 — a double click inside the 2s window could pin the button on "Copied" forever, and a rejected write gave no fallback/feedback. Asset size unaffected (2278 B / 3072 B budget) — alternatives: none, matches the review's suggested fix.
+- [p09-review_fix1/nit1] `e2e/test_notifications_i18n.py::test_copy_as_text_flips_to_copied` now asserts `data-ae-copied-state="1"` (set alongside the label swap, cleared only when the 2s revert timer fires) before asserting the visible "Copied" text — why: review r1 nit — the bare `to_have_text("Copied")` assertion races the same 2s revert timer it is testing, and on a loaded machine the first poll could land past the revert for no product reason; the new attribute doesn't self-clear on the same schedule as a false negative would require — alternatives: none, matches the review's suggested fix.
+- [p09-review_fix1/nit2] `checks.check_mail_admins_overlap` (and its `_is_admin_email_handler_config` helper) now guard every `LOGGING` sub-shape with `isinstance` checks (`handlers` as non-dict, `root`/each logger entry as non-dict, a `handlers` list entry as non-list) and return `[]` on anything unexpected, via a new `_handler_names()` helper — why: review r1 nit — a host mid-edit of `LOGGING` (e.g. `handlers` as a list) previously raised out of a system check instead of being silently skipped (dictConfig itself reports the real malformation). Added `test_w003_tolerates_malformed_logging_shapes`, which calls `checks.check_mail_admins_overlap()` directly rather than `run_checks()` — discovered mid-fix that some of the same malformed shapes also crash the pre-existing, unrelated `check_logging_propagation` (W002), which is out of scope for this nit and left untouched — alternatives: also hardening W002 in the same pass (scope creep beyond the nit that was actually reported), using `run_checks()` and filtering by id (would have coupled this test to W002's unrelated bug, as first observed when the test failed on the `AttributeError` from `check_logging_propagation`, not from the code this fix touches).
+- [p09-review_fix1/note1] This fix round ran `uv run pytest -q` (342 passed / 8 skipped, up from 338/8) and the full four-command lint gate, both green; it did not re-run `make e2e-up && uv run --extra e2e pytest e2e -q && make e2e-down` — why: the e2e edits (minor2, nit1) are mechanical (an offset parameter, a new asserted attribute already set by the minor3 JS fix) and starting/stopping a server + browser matrix is out of proportion for a review-fix pass whose required gate (this step's instructions) is `uv run pytest -q`; flagged here rather than silently skipped, per rule 11 — alternatives: run the e2e suite anyway (safer but not required by this step's explicit instructions, which name only `uv run pytest -q` as the gate to pass).
+
+
+
+## p09-review_fix2
+
+- [p09-review_fix2/blocker1] `e2e/test_notifications_i18n.py`'s notification case now drives `/logged/` instead of `/keyerror/<key>/` (both the `_hit_until_admitted` call and the resolve/re-hit pair), and `e2e/plans/notifications-i18n.plan.yaml`'s steps/scope_notes were reworded to match — why: review r2 blocker — `/keyerror/` is also driven by `admin-ui.plan.yaml`'s own regression case against the same `demo_app.views.keyerror` culprit (both files run in the same `runserver` process, alphabetically), so whichever file ran first consumed the only "New issue:" log line and the other file's `since=offset` search deterministically found nothing. Tried `/warning/` first (the review's other suggestion) and it does not work: `capture._capture_record` (capture.py:473-478) sets `culprit=""` for any log record with no `exc_info`, and `logger.warning(...)` in `demo_app.views.warning` never attaches one, so the admin's culprit-based search can never find that issue — `_hit_until_admitted` timed out for real on a live `make e2e-up` run before this was caught. `/logged/` calls `logger.exception(...)` inside an `except`, so `record.exc_info` is set, `culprit` resolves to `demo_app.views.logged`, and it is otherwise untouched by any other e2e spec. Confirmed both the failure with `/warning/` and the pass with `/logged/` via `make e2e-up && uv run --extra e2e pytest e2e -q` (19 passed) `&& make e2e-down` (port 8000 confirmed free after) — alternatives: assert on a `Regression:` subject instead (the review's own alternative notes the demo's default 3600s `NOTIFY_THROTTLE_SECONDS` would suppress it — see minor-rejected2), lower the demo's throttle just for this case (would make the demo's shipped defaults diverge from what a real host runs, contradicting the demo's role as a truthful default-configuration showcase).
+- [p09-review_fix2/minor1] `admin_errors.js`'s copy button now sets a `data-ae-copy-count` attribute (incremented on each successful copy) that is never removed, instead of a `data-ae-copied-state` attribute that was cleared by the same 2s `setTimeout` callback that reverts the visible label; `e2e/test_notifications_i18n.py::test_copy_as_text_flips_to_copied` asserts `data-ae-copy-count == "1"` — why: review r2 minor — the r1 nit fix's `data-ae-copied-state` attribute cleared on the identical timer as the label it was meant to be a race-free stand-in for, so it raced the exact failure mode it claimed to sidestep; a monotonically-incrementing, never-cleared counter is a durable proof a copy happened, independent of the label's 2s revert — alternatives: a configurable revert delay read from a `data-` attribute the test could raise (bigger surface change to the product for a test-only need).
+- [p09-review_fix2/minor2] Reworded `CHANGELOG.md`'s notifications entry and `notifications.py`'s module docstring: both now say a receiver connects when `NOTIFY_BACKEND` resolves, the matching `reason` is in `NOTIFY_ON`, and the backend class's optional `is_enabled()` hook returns `True` (absent hook = enabled; `EmailNotifier.is_enabled()` is the one that requires a non-empty recipient list) — why: review r2 minor — both previously said the connection required "a non-empty recipient list", which `p09-review_fix1/major2` made false for any backend without an `is_enabled` hook (proved by `test_custom_notify_backend_is_used_without_admins_or_recipients`); a host reading either would wrongly conclude a recipient list gates every backend — alternatives: none, this is a documentation-only correction to match already-shipped behaviour.
+- [p09-review_fix2/nit1] Re-ran `makemessages -l uk` from `src/admin_errors/` and recompiled; the committed `.po`'s `#:` reference lines now point at the post-fix-round line numbers (`notifications.py`, `admin.py`, `traceback.html` all shifted a few lines from the r1 fixes) — no `msgid` added, removed, or left with an empty `msgstr` (confirmed via `git diff --stat`: only reference-line and `POT-Creation-Date` churn) — why: review r2 nit — PLAN.md T10's "byte-identical .po" claim had gone stale after r1's edits moved lines in the files the catalogue references.
+- [p09-review_fix2/minor-rejected2] Left `notified_at` uncleared on resolve (review r2's minor re-raising `p09-review_fix1/minor-rejected`, "the premise for rejecting this does not hold"). The review is right that `test_throttle_suppresses_second_notification_inside_window` (tests/test_notifications.py:226-243) is not a plain repeat-occurrence throttle test — it explicitly resolves the issue between the two `store_batch` calls, so it *is* exercising the resolve-then-regress-inside-the-window path, and r1's stated reason ("fixing this would force weakening that test") was circular: the test encodes the very behaviour under dispute, not an independent constraint against changing it. Restating the actual reason, spec-literal this time: spec §10 says to send "only if `issue.notified_at` is None or older than `NOTIFY_THROTTLE_SECONDS`" with no carve-out for a resolve in between, so `_apply_status()` clearing `notified_at` on RESOLVED would be an addition beyond what spec §10 specifies, not a bug fix — the behaviour stays as shipped because the spec is silent in the direction of "don't reset", not because a test would need weakening. The operator-silence gap for "resolved, then regresses inside the window" is real and worth surfacing, but the fix is documentation, not code: Phase 10's README/FAQ must carry a named entry next to `NOTIFY_THROTTLE_SECONDS` (not a passing mention) stating that resolving an issue does not reset its throttle, so a regression within the window of the original notification is silent by design — tracked here since Phase 10 owns the README and does not exist yet — alternatives: clear `notified_at` in `_apply_status()` on RESOLVED (goes beyond the spec-literal reading for a behaviour change with its own test implications, out of a "small and safe" fix-pass scope), leave both the code and the documentation gap unaddressed (the reviewer's dispreferred option, and the one that lets the silence go untracked into Phase 10).
+
+
+
+## p09-e2e
+
+- [p09-e2e] Fresh independent QA pass performed against the already-running demo (orchestrator's
+  `make e2e-up`, not started/stopped here): `uv run pytest -q` 342 passed/8 skipped, `uv run --extra
+  e2e pytest e2e -q` 19 passed/1 deselected, both matching the p09-review_audit2 numbers with no
+  regressions — why: this step's job is independent verification, not re-authoring; the plan
+  (`e2e/plans/notifications-i18n.plan.yaml`) and specs (`e2e/test_notifications_i18n.py`) already
+  went through two review rounds plus an approved audit this session, so re-deriving the oracle from
+  scratch would duplicate that work rather than add QA value — alternatives: none, rewriting an
+  already-audited plan/spec pair would violate rule 9's spirit (churn without a finding to justify it).
+- [p09-e2e] Additionally drove the live demo by hand with a disposable Playwright script (not
+  committed): logged in as `admin`/`admin`, opened the `demo_app.views.logged` issue, clicked "Copy
+  as text", and read `navigator.clipboard.readText()` directly — confirmed the clipboard payload is
+  a real plain-text traceback (`request = <WSGIRequest: GET '/logged/'>` local visible, matching the
+  superuser's `view_issue_context` grant), the button label flips to "Copied" and reverts to "Copy as
+  text" after ~2s, and grepping `/tmp/admin-errors-e2e-server.log` for `Subject:` lines confirmed
+  exactly one "New issue: ValueError in demo_app.views.logged" email exists across the whole log
+  (throttle held) with correct subject prefix (`[Mac.Dlink]`), title, culprit, level, occurrence
+  counts and a bare (no `NOTIFY_BASE_URL`) admin-change-view path — why: automated specs assert
+  presence/absence of strings but a human QA pass should also look at the actual rendered artefact
+  (clipboard bytes, email body) the way an operator would — alternatives: trust the existing
+  assertions alone (weaker manual-QA bar than this step asks for).
+- [p09-e2e] No new bugs found and no code/spec changes made this step — the two majors, one blocker
+  and remaining minors/nits from REVIEW-r1/r2 were already fixed and audited approve before this step
+  ran; deferred_not_authored entries in the plan (viewer copy-as-text gating, uk-locale rendering) are
+  correctly scoped to the unit layer since the demo has no language switcher and the HTTP-layer gate
+  test already reads the response body a browser could not observe more of — why: nothing to add
+  without duplicating existing coverage — alternatives: author redundant browser cases anyway (adds
+  runtime/maintenance cost with no new failure mode caught, contrary to "4-12 per feature ... that
+  prove something").
+
+## p09-e2e_fix1
+
+
+- [p09-e2e_fix1] Root cause of `test_created_email_in_server_log_and_regressed_badge` failing:
+  not a product bug. `make e2e-up` is idempotent and skips restart/reseed when the server already
+  answers (Makefile:9-22); the previous step's own manual QA pass (`p09-e2e` entry above) had
+  already hit `/logged/` once by hand and set `demo_app.views.logged`'s `Issue.notified_at`, inside
+  the default 3600s `NOTIFY_THROTTLE_SECONDS` window — confirmed via `sqlite3 demo/demo.sqlite3
+  "select notified_at from admin_errors_issue where culprit='demo_app.views.logged'"` (01:03:11,
+  ~3 minutes before this run) and by grepping `/tmp/admin-errors-e2e-server.log` for the single
+  pre-existing "New issue: ValueError in demo_app.views.logged" line, which sat before this test's
+  `_server_log_offset()` capture. `notify()`'s throttle (`notifications.py`) then correctly
+  suppressed a second email on this run's hit — the shipped behaviour is correct; the test's
+  precondition ("a culprit never hit before in this server run") was assumed, not enforced, and
+  broke the moment the long-lived demo server outlived a single attempt. Fix: added
+  `_delete_existing_issue()` to `e2e/test_notifications_i18n.py`, which deletes any pre-existing
+  issue for the target culprit through the admin's own bulk `delete_selected` action before hitting
+  `/logged/`, and called it at the top of the case; updated `notifications-i18n.plan.yaml`'s steps
+  and scope_notes to document the precondition is now enforced, not assumed — why: this makes the
+  case idempotent across retries against the same live server (verified by running the full `e2e`
+  suite three times in a row with no restart in between, all green), which the autonomous
+  fix-e2e loop needs since it cannot restart surfaces mid-step (rule: "do not start or stop the
+  surfaces") — alternatives: reach into the DB directly to clear `notified_at` or delete the row
+  (bypasses the product's own admin surface for no benefit over the bulk-delete action, which is a
+  real feature already covered elsewhere), lower `NOTIFY_THROTTLE_SECONDS` for the demo host (would
+  change the demo's shipped defaults away from the intentionally-realistic 3600s and could mask a
+  regression in the real throttle window), pick yet another culprit (the fingerprint algorithm's
+  `normalize_message` collapses any quoted literal to `<str>`, so `/keyerror/<key>/` cannot produce
+  a fresh fingerprint per key regardless of the value chosen — `/logged/` is already the only
+  exclusive, parameter-free culprit available in the demo app).
+
+## p09-docs
+
+- [p09/docs] `README.md`'s "Try it" section said the notification email was "a Phase 9 addition and
+  not yet observable" — stale now that phase 9 shipped `EmailNotifier`. Replaced with the actual
+  demo behaviour: a first hit prints a "New issue:" console email, a regression after the throttle
+  window prints a second one, and a resolve/re-hit inside the window stays silent (matches
+  `p09-review_fix2/minor-rejected2`'s documented, spec-literal throttle behaviour) — why: CLAUDE.md
+  and the doc guide both say a doc contradicting the code is worse than a missing one — alternatives:
+  none, this was a factual correction, not a rewrite.
+- [p09/docs] Added a `textformat.py` row to `.autodev/ARCHITECTURE.md`'s component table — the module
+  existed in code and tests but PLAN.md itself flagged it as "a deviation from the module table" that
+  was never backfilled — why: this file is the "components as they now exist" doc read by every
+  future session, and the table is the one authoritative module list — alternatives: none, this is
+  the closest project analogue to `docs/dev/architecture.md`, which this project does not have.
+- [p09/docs] `CHANGELOG.md`, `CLAUDE.md`, `docs/spec.md` and `.autodev/ARCHITECTURE.md`'s
+  `notifications.py`/`checks.py` rows were already accurate against the diff — left unchanged. No
+  `docs/user/` or `docs/dev/{testing,development,operations,troubleshooting}.md` exist in this repo
+  (previous phases never created them, and PLAN.md's own "Out of scope" explicitly defers the
+  notifier's README/user-doc coverage to Phase 10) — did not scaffold them here, consistent with that
+  standing decision — alternatives: create the pages now (would pre-empt Phase 10's own scoped task
+  and CLAUDE.md's "create only the pages this project has something true to say in" would still leave
+  most of them empty).
+

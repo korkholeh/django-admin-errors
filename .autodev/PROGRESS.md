@@ -1,14 +1,14 @@
 # Autodev progress — django-admin-errors
 
 - **Status:** running
-- **Current:** phase 8/10 · step `commit`
+- **Current:** phase 9/10 · step `commit`
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260915-1213`
 - **Stack:** Python 3.10-3.13, Django 4.2/5.2/6.0/6.1, SQLite + PostgreSQL 13+, zero runtime deps beyond Django, hatchling src-layout wheel, pytest + pytest-django, ruff, tox, pytest-playwright for e2e · **Profile:** `django-htmx`
 - **Test command:** `uv run pytest -q` · **E2E:** `uv run --extra e2e pytest e2e -q`
-- **Usage:** 5h ? (reset 16.09 03:40) · 7d ?
-- **Totals:** 75 sessions · 6.7 h agent time · ≈$122.93 API-equivalent
-- **Clock:** 12.8 h since the run was created · 6.7 h working · 4.0 h paused on the usage limit · 2.1 h not running
-- **Updated:** 2026-09-16 00:58:33
+- **Usage:** 5h ? (reset 16.09 08:40) · 7d ?
+- **Totals:** 88 sessions · 7.8 h agent time · ≈$145.68 API-equivalent
+- **Clock:** 16.0 h since the run was created · 7.8 h working · 6.1 h paused on the usage limit · 2.1 h not running
+- **Updated:** 2026-09-16 04:15:00
 
 ## Phases
 
@@ -21,8 +21,8 @@
 | 5 | Retention, commands, dedicated alias and Celery | no | ✅ done | a886f93 |  |
 | 6 | PostgreSQL pass | no | ✅ done | 9623bcf |  |
 | 7 | Demo project | yes | ✅ done | 3a7d483 |  |
-| 8 | Admin UI | yes | 🔨 in_progress |  |  |
-| 9 | Notifications, status transitions and i18n | yes | ⏳ pending |  |  |
+| 8 | Admin UI | yes | ✅ done | 56b4a5c | review round 2 changed the working tree itself (docs/img/issue-detail-dark.png, docs/img/issue-detail-dark.png, docs/img/issue-detail-light.png, docs/img/issue-detail-light.png, docs/img/issue-list-dark.png +3 more); those edits are part of this phase's commit, unreviewed |
+| 9 | Notifications, status transitions and i18n | yes | 🔨 in_progress |  |  |
 | 10 | Documentation, release readiness and final verification | yes | ⏳ pending |  |  |
 
 ## Timeline
@@ -153,6 +153,29 @@
 - `2026-09-16 00:56:24` **p08-e2e** — done (2m, $0.52): E2E harness for phase 8 (admin UI) was already built and reviewed to approval in prior sessions: e2e/plans/admin-ui.plan.yaml (8 cases) + e2e/test_admin_ui.py + e2e/test_screenshots.py, covering issue-list cards/sparkline, boom/boom_n aggregation and dedup, collapsed library frames, locals toggle, …
 - `2026-09-16 00:56:32` **p08-e2e** — pass: exit 0: 17 passed, 1 deselected in 8.10s
 - `2026-09-16 00:58:33` **p08-docs** — done (2m, $0.67): Reviewed CLAUDE.md, docs/dev/adr/{0005,0007}, CHANGELOG.md, README.md against PLAN.md and the phase-8 diff. Only README.md was stale: the "Try it" section still said the demo "has no admin UI of its own yet" and that the regressed badge / console email were "not yet observable" — both false now tha…
+- `2026-09-16 00:58:33` **commit** — command files: this commit changes what the project's own commands run: pyproject.toml
+- `2026-09-16 00:58:33` **p08-commit** — done: 56b4a5c
+- `2026-09-16 00:58:36` **push** — done: korkholeh/django-admin-errors@autodev/spec-20260915-1213 as korkholeh
+- `2026-09-16 01:05:36` **p09-plan** — done (7m, $2.64): Explored the package, spec §5/§10/§11.5/§12.3-12.5/§14.2, risks #13/#2/#1 and the phase-4/8 decisions, then wrote .autodev/phases/09-notifications-and-i18n/PLAN.md with Context, Design, 13 ordered tasks, a verification table covering all nine acceptance criteria, risk rows and out-of-scope. Eight p…
+- `2026-09-16 01:17:19` **p09-implement** — handover: context reached 203,707 tokens — checkpointing for a fresh session
+- `2026-09-16 01:19:04` **p09-implement** — partial (13m, $5.42): Phase 9 tasks T1-T11 done and verified: conf.py NOTIFY_BASE_URL; new textformat.py (plain-text traceback renderer); new notifications.py (EmailNotifier, throttle, connect/disconnect signal plumbing, wired from apps.ready()); checks.py W003 (mail_admins/EmailNotifier overlap); admin.py + traceback.h…
+- `2026-09-16 01:33:07` **p09-implement** — done (14m, $3.27): Finished phase 9 (session 2), completing T12 and T13 — T1-T11 were already done by session 1. T12: added e2e/plans/notifications-i18n.plan.yaml + e2e/test_notifications_i18n.py covering (a) a real demo server writing a "New issue:" console-email line to its stdout log plus a resolve/re-hit → Regres…
+- `2026-09-16 01:33:17` **p09-tests** — pass: exit 0: 338 passed, 8 skipped, 1 warning in 10.04s
+- `2026-09-16 01:37:57` **usage** — paused: 5h usage 90% ≥ 85%; sleeping until ≈16.09 03:42
+- `2026-09-16 03:42:00` **usage** — resumed: 5h ? (reset ?) · 7d ?
+- `2026-09-16 03:43:24` **p09-review1** — changes_requested (6m, $2.93): Phase 9 delivers the notifier, W003, the copy-as-text traceback and a complete Ukrainian catalogue, and every acceptance criterion has a named test that can genuinely fail. I re-ran the gate myself: 338 passed / 8 skipped on SQLite, ruff + format + django check + makemigrations --check all clean; m…
+- `2026-09-16 03:48:36` **p09-review_fix1** — done (5m, $1.53): Applied review r1 fixes for phase 9. Fixed (blockers/majors): - MAJOR #1: traceback.html now has its own perms.admin_errors.view_issue_context gate (mirrors frame.html), independent of admin.py's view-level redaction. admin.py builds ae_traceback_text (always no-locals) + ae_traceback_text_context …
+- `2026-09-16 03:48:46` **p09-tests** — pass: exit 0: 342 passed, 8 skipped, 1 warning in 10.15s
+- `2026-09-16 03:52:52` **p09-review2** — changes_requested (4m, $1.65): Phase 9's product code is in good shape and both round-1 majors are genuinely fixed: `traceback.html` now carries its own `perms.admin_errors.view_issue_context` gate with a test that renders the include directly against a deliberately-leaked context value, and `_sync_connection()` gates on a backe…
+- `2026-09-16 03:58:37` **p09-review_fix2** — done (5m, $1.51): Fixed: (1) BLOCKER — e2e notification case switched from shared `/keyerror/` culprit to `/logged/` (tried `/warning/` first, per review's suggestion, but that view's log record carries no `exc_info` so `culprit=""` and the admin search can never find it — caught this on a live run before landing `/…
+- `2026-09-16 03:58:48` **p09-tests** — pass: exit 0: 342 passed, 8 skipped, 1 warning in 10.13s
+- `2026-09-16 04:01:48` **p09-review_audit2** — approve (3m, $1.19): All four r2 findings are genuinely fixed in this diff, and the one rejection is properly argued. The blocker (e2e red because the notification case shared the `demo_app.views.keyerror` culprit with `test_admin_ui.py`) is fixed by pointing the case at `/logged/`: that view calls `logger.exception` i…
+- `2026-09-16 04:04:52` **p09-e2e** — done (3m, $0.64): Independent QA pass on phase 9 (notifications/i18n), no code changes needed — prior review rounds (r1/r2 + audit approve) already fixed the real bugs (perm gate on copy-as-text, backend is_enabled() predicate, keyerror-culprit log-race, copy-button race, stale log offset). Re-ran fresh: `uv run pyt…
+- `2026-09-16 04:05:12` **p09-e2e** — fail: exit 1: 1 failed, 18 passed, 1 deselected in 19.52s
+- `2026-09-16 04:12:03` **p09-e2e_fix1** — done (6m, $1.35): Root cause: not a product bug. `make e2e-up` reuses an already-answering demo server without reseeding. A prior manual-QA pass (documented in the p09-e2e DECISIONS.md entry) had already hit /logged/ once by hand, setting Issue.notified_at for culprit demo_app.views.logged — confirmed via sqlite que…
+- `2026-09-16 04:12:14` **p09-e2e** — pass: exit 0: 19 passed, 1 deselected in 10.54s
+- `2026-09-16 04:12:25` **p09-tests** — pass: exit 0: 342 passed, 8 skipped, 1 warning in 10.16s (after e2e fixes)
+- `2026-09-16 04:15:00` **p09-docs** — done (2m, $0.61): Verified phase 9 docs against the diff. CHANGELOG.md and CLAUDE.md were already accurate (notifications, NOTIFY_BASE_URL, W003, copy-as-text, uk catalogue all correctly described). Fixed two stale spots: README.md's 'Try it' section said the notification email was 'a Phase 9 addition and not yet ob…
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.

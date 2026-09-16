@@ -96,8 +96,11 @@ one issue, at most `EVENT_SAMPLE_PER_HOUR` stored events, and the occurrence cou
 is process-local, so it is only visible in the same process, not through a separate `manage.py`
 invocation); run `uv run python demo/manage.py errors_cleanup --dry-run` → a report of what retention
 would delete.
-Resolving an issue in the admin and triggering it again shows the *Regressed* badge on its detail
-page; the notification email for that event is a Phase 9 addition and not yet observable.
+A first hit of any issue also prints a "New issue: …" email to the console (the demo's
+`EMAIL_BACKEND`), sent once per issue thanks to `NOTIFY_THROTTLE_SECONDS`. Resolving an issue in the
+admin and triggering it again shows the *Regressed* badge on its detail page and, if that happens
+after the throttle window has passed, a second "Regression: …" email; resolving and re-hitting inside
+the window stays silent, since resolving does not reset the throttle.
 
 ## License
 

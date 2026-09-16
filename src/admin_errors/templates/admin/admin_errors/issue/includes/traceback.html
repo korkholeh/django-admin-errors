@@ -1,6 +1,15 @@
 {% load i18n admin_errors_tags %}
 <fieldset class="module ae-traceback">
   <h2>{% translate "Traceback" %}</h2>
+  {% if ae_traceback_text %}
+    <button type="button" class="ae-copy" data-ae-copy-target="ae-traceback-text"
+            data-ae-copied="{% translate 'Copied' %}">{% translate "Copy as text" %}</button>
+    {% if ae_can_view_context and perms.admin_errors.view_issue_context and ae_traceback_text_context %}
+      <pre id="ae-traceback-text" hidden>{{ ae_traceback_text_context }}</pre>
+    {% else %}
+      <pre id="ae-traceback-text" hidden>{{ ae_traceback_text }}</pre>
+    {% endif %}
+  {% endif %}
   {% if ae_payload.exception %}
     {% ae_traceback_blocks ae_payload as ae_blocks %}
     {% for block in ae_blocks %}

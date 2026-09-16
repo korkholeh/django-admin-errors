@@ -680,6 +680,12 @@ def test_status_change_fires_issue_status_changed(client, django_user_model, iss
         data = {"action": "ignore", "_selected_action": [str(i.pk) for i in issues]}
         client.post(reverse("admin:admin_errors_issue_changelist"), data)
         assert len(received) == 2
+        received_by_issue = {kwargs["issue"].pk: kwargs for kwargs in received}
+        assert set(received_by_issue) == {issue.pk for issue in issues}
+        for kwargs in received_by_issue.values():
+            assert kwargs["old_status"] == Issue.Status.OPEN
+            assert kwargs["new_status"] == Issue.Status.IGNORED
+            assert kwargs["user"] == user
     finally:
         signals.issue_status_changed.disconnect(_receiver)
 
@@ -757,6 +763,64 @@ def test_view_issue_context_reveals_context(client, django_user_model, issue_fac
         body = response.content.decode()
         for secret in _ALL_SECRETS:
             assert secret in body
+
+
+def test_copy_as_text_has_no_locals_without_context_permission(
+    client, django_user_model, issue_factory
+):
+    issue = issue_factory()
+    user = _staff_user(django_user_model, perms=["view_issue"])
+    client.force_login(user)
+    detail = client.get(reverse("admin:admin_errors_issue_change", args=[issue.pk]))
+    event = issue.events.first()
+    event_detail = client.get(reverse("admin:admin_errors_issue_event", args=[issue.pk, event.pk]))
+    for response in (detail, event_detail):
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert 'id="ae-traceback-text"' in body
+        assert SECRET_LOCAL not in body
+        for secret in _ALL_SECRETS:
+            assert secret not in body
+
+
+def test_copy_as_text_contains_locals_with_context_permission(
+    client, django_user_model, issue_factory
+):
+    issue = issue_factory()
+    user = _staff_user(django_user_model, perms=["view_issue", "view_issue_context"])
+    client.force_login(user)
+    detail = client.get(reverse("admin:admin_errors_issue_change", args=[issue.pk]))
+    event = issue.events.first()
+    event_detail = client.get(reverse("admin:admin_errors_issue_event", args=[issue.pk, event.pk]))
+    for response in (detail, event_detail):
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert 'id="ae-traceback-text"' in body
+        assert SECRET_LOCAL in body
+
+
+def test_copy_as_text_template_gates_itself_even_if_the_view_leaks_context(django_user_model):
+    """review r1 major #1: `traceback.html` must carry its own
+    `perms.admin_errors.view_issue_context` gate (ADR 0007's mandated view + template shape), not
+    rely solely on the view never making a mistake. Renders the include directly with
+    `ae_traceback_text_context` populated with locals but a user who lacks the permission,
+    simulating exactly that view-side bug."""
+    from django.contrib.auth.context_processors import PermWrapper
+    from django.template.loader import render_to_string
+
+    user = _staff_user(django_user_model, perms=["view_issue"])
+    body = render_to_string(
+        "admin/admin_errors/issue/includes/traceback.html",
+        {
+            "ae_payload": {},
+            "ae_traceback_text": "safe traceback, no locals",
+            "ae_traceback_text_context": f"unsafe traceback with {SECRET_LOCAL}",
+            "ae_can_view_context": True,  # the hypothetical view-side bug: True despite no perm
+            "perms": PermWrapper(user),
+        },
+    )
+    assert SECRET_LOCAL not in body
+    assert "safe traceback, no locals" in body
 
 
 def test_without_change_issue_buttons_are_absent_and_post_is_403(
@@ -847,3 +911,77 @@ def test_no_inline_script_in_templates():
         text = path.read_text()
         for match in re.finditer(r"<script\b[^>]*>", text):
             assert "src=" in match.group(0), f"{path}: {match.group(0)}"
+
+
+# -- T11: i18n (Ukrainian catalogue) -----------------------------------------------------------
+
+_PO_KEYWORD = re.compile(r'^(msgid|msgid_plural|msgstr(?:\[\d+\])?) "(.*)"$')
+
+
+def _uk_po_path():
+    from pathlib import Path
+
+    import admin_errors
+
+    return Path(admin_errors.__file__).parent / "locale" / "uk" / "LC_MESSAGES" / "django.po"
+
+
+def _parse_po_entries(path):
+    """Minimal `.po` reader: one dict per entry, `msgid` plus every `msgstr`/`msgstr[n]` value."""
+    raw_lines = path.read_text(encoding="utf-8").splitlines()
+    lines = [line for line in raw_lines if not line.startswith("#")]
+    merged = []
+    for line in lines:
+        if line.startswith('"') and merged:
+            merged[-1] = merged[-1][:-1] + line[1:]  # continuation: glue onto the previous string
+        else:
+            merged.append(line)
+    entries, current = [], {"msgid": None, "msgstrs": []}
+    for line in [*merged, ""]:
+        if not line.strip():
+            if current["msgid"] is not None:
+                entries.append(current)
+            current = {"msgid": None, "msgstrs": []}
+            continue
+        match = _PO_KEYWORD.match(line)
+        if not match:
+            continue
+        keyword, value = match.groups()
+        if keyword in ("msgid", "msgid_plural"):
+            current["msgid"] = current["msgid"] or value
+        else:
+            current["msgstrs"].append(value)
+    return entries
+
+
+def test_ukrainian_catalogue_is_complete():
+    entries = [e for e in _parse_po_entries(_uk_po_path()) if e["msgid"]]
+    assert len(entries) > 50  # sanity: the catalogue actually has content
+    untranslated = [e["msgid"] for e in entries if not e["msgstrs"] or not all(e["msgstrs"])]
+    assert untranslated == []
+
+
+def test_ukrainian_translation_differs_from_english_source():
+    from django.utils import translation
+
+    with translation.override("uk"):
+        assert str(tags._("Resolve")) == "Вирішити"
+
+
+def test_pages_render_in_ukrainian(client, django_user_model, issue_factory):
+    from django.utils import translation
+
+    issue = issue_factory()
+    user = _staff_user(django_user_model, perms=["view_issue", "view_issue_context"])
+    client.force_login(user)
+    event = issue.events.first()
+    with override_settings(LANGUAGE_CODE="uk"), translation.override("uk"):
+        list_response = client.get(reverse("admin:admin_errors_issue_changelist"))
+        detail_response = client.get(reverse("admin:admin_errors_issue_change", args=[issue.pk]))
+        event_response = client.get(
+            reverse("admin:admin_errors_issue_event", args=[issue.pk, event.pk])
+        )
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
+    assert event_response.status_code == 200
+    assert "Трасування" in detail_response.content.decode()

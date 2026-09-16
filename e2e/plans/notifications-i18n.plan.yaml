@@ -1,0 +1,90 @@
+feature: notifications-i18n
+surfaces: [demo]
+entry: "http://127.0.0.1:8000/admin/admin_errors/issue/"
+
+under_test:
+  - src/admin_errors/notifications.py
+  - src/admin_errors/templates/admin/admin_errors/issue/includes/traceback.html
+  - src/admin_errors/static/admin_errors/admin_errors.js
+
+oracle: >
+  Phase 9's PLAN.md commits to two browser cases beyond what `tests/test_notifications.py` and
+  `tests/test_admin.py` already prove at the `Client()`/`mail.outbox` layer: that a real demo
+  server, running the console `EMAIL_BACKEND` and `ADMINS` from `demo/demo_project/settings.py`,
+  actually writes a notification to its own stdout when an issue is created (the thing only a real
+  process boundary — not a Django test client sharing the test process — can show), and that the
+  "Copy as text" button's clipboard affordance and label flip are real DOM/Clipboard-API behaviour,
+  not just the server-rendered HTML `test_admin.py`'s copy-as-text tests already assert.
+
+scope_notes: >
+  The demo's `ADMIN_ERRORS` dict (settings.py) does not override `NOTIFY_THROTTLE_SECONDS`, so it
+  stays at the shipped default (3600s). A regression fired moments after the issue's own creation
+  email falls inside that same throttle window and is correctly suppressed (`notify()`'s
+  conditional `UPDATE`, PLAN.md's design) — this is the real product contract, not a gap, and the
+  demo is deliberately left at shipped defaults rather than tuned to make a second e2e email land.
+  This plan's notification case therefore asserts the "created" email (the one notification that is
+  guaranteed to fire) rather than a second "regressed" email, and drives the resolve/re-hit sequence
+  only to prove the status transition (badge). The case uses `/logged/` rather than
+  `/keyerror/<key>/`: `/logged/` takes no parameter, so repeated hits map to the same issue
+  (culprit `demo_app.views.logged`) without needing a distinct key per hit, and — unlike
+  `/keyerror/`, which `admin-ui.plan.yaml`'s own regression case also drives against the same
+  `demo_app.views.keyerror` culprit (review r2 blocker: whichever e2e file's `runserver` hit landed
+  first consumed the only "New issue:" log line, so the other file's offset-based search always
+  missed it) — no other e2e spec touches `/logged/`, so this plan owns that row outright and its
+  `New issue:` line is guaranteed to exist after this case's own `_server_log_offset()` capture. A
+  single `/logged/` hit can still be silently dropped by the `NEW_ISSUES_PER_MINUTE` admission
+  bucket if `demo-app-surface`'s `/unique-storm/` burst has just drained it; this plan's
+  `_hit_until_admitted` re-fires the request (not just a page reload) until it is admitted, since
+  only re-admission — not waiting out a writer-flush delay — recovers from a dropped occurrence.
+  The server log path is `/tmp/admin-errors-e2e-server.log` (`make e2e-up`, Makefile); this plan
+  reads it by absolute path rather than through the browser. `make e2e-up` is idempotent and skips
+  seeding/restart when the server already answers, so a retry of this suite — or an earlier manual
+  QA pass — against the same live server can leave `demo_app.views.logged`'s issue already created
+  and already notified, inside the default 3600s `NOTIFY_THROTTLE_SECONDS` window; the case now
+  deletes that row through the admin's own bulk action before hitting `/logged/`, so "never hit
+  before in this server run" is enforced rather than assumed (`.autodev/DECISIONS.md`, p09-e2e_fix1).
+
+cases:
+  - id: created-email-in-server-log-and-regressed-badge
+    priority: high
+    steps: >
+      ["log in as admin/admin", "delete any pre-existing issue for demo_app.views.logged through
+      the admin's own bulk-delete action (re-establishes a fresh fingerprint even across repeated
+      runs against the same long-lived demo server, since `make e2e-up` does not restart an
+      already-answering server)", "open /logged/ once (now guaranteed never hit before in this
+      server run, so its notification is not throttled)", "wait for the issue to appear in the
+      admin list", "open its detail page as admin", "click Resolve", "open /logged/ again", "reload
+      the detail page"]
+    expected: >
+      the demo server log (console `EMAIL_BACKEND`) gains a line containing "New issue:" together
+      with the culprit `demo_app.views.logged`, proving the post-commit `issue_created` signal
+      reached `EmailNotifier` and `send_mail` really left the process's stdout; after the second hit
+      the status badge reads "Regressed" (`.ae-badge--regressed`) — spec §13's manual QA script and
+      §6.1, this phase's
+      `issue_status_changed`/reopen-on-new-occurrence contract
+
+  - id: copy-as-text-flips-to-copied
+    priority: medium
+    steps: >
+      ["grant the browser context clipboard-write/clipboard-read permission", "log in as
+      admin/admin", "open /boom/ once", "open that issue's detail page", "click the 'Copy as text'
+      button"]
+    expected: >
+      the hidden `#ae-traceback-text` element carries the rendered plain-text traceback, and after
+      the click the button's visible label switches to the translated "Copied" string
+      (`data-ae-copied`) — PLAN.md's Copy-as-text design, admin_errors.js's `onCopyClick`
+
+findings: []
+
+deferred_not_authored:
+  - id: viewer-copy-as-text-gating
+    reason: >
+      Already proven at the HTTP layer by `tests/test_admin.py::test_copy_as_text_has_no_locals_
+      without_context_permission` (the redacted-payload half of the double gate); a browser adds no
+      new observable over what that `Client()` test already reads out of the response body.
+  - id: uk-locale-rendering
+    reason: >
+      `tests/test_admin.py::test_pages_render_in_ukrainian` already proves every admin page renders
+      `200` and a known string differs under `LANGUAGE_CODE=uk`; the demo has no language switcher
+      (out of scope, PLAN.md), so there is no browser-observable behaviour beyond what that
+      `Client()`-driven test already covers.

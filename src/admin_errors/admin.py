@@ -27,7 +27,7 @@ from django.utils.timesince import timesince
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_POST
 
-from admin_errors import signals
+from admin_errors import signals, textformat
 from admin_errors.conf import settings as conf
 from admin_errors.models import Event, Issue, IssueDailyCount
 from admin_errors.templatetags.admin_errors_tags import (
@@ -258,6 +258,14 @@ class IssueAdmin(admin.ModelAdmin):
         can_view_context = request.user.has_perm("admin_errors.view_issue_context")
 
         extra_context["ae_payload"] = _redact_payload(issue.last_event, can_view_context)
+        extra_context["ae_traceback_text"] = textformat.format_traceback_text(
+            extra_context["ae_payload"], include_locals=False
+        )
+        extra_context["ae_traceback_text_context"] = (
+            textformat.format_traceback_text(extra_context["ae_payload"], include_locals=True)
+            if can_view_context
+            else ""
+        )
         events = list(
             issue.events.using(conf.DATABASE).order_by("-timestamp")[: conf.EVENTS_PER_ISSUE]
         )
@@ -331,6 +339,7 @@ class IssueAdmin(admin.ModelAdmin):
         issue = get_object_or_404(self.get_queryset(request), pk=object_id)
         event = get_object_or_404(Event.objects.using(conf.DATABASE), pk=event_id, issue=issue)
         can_view_context = request.user.has_perm("admin_errors.view_issue_context")
+        ae_payload = _redact_payload(event.payload, can_view_context)
         context = {
             **self.admin_site.each_context(request),
             "title": event,
@@ -338,7 +347,13 @@ class IssueAdmin(admin.ModelAdmin):
             "issue": issue,
             "event": event,
             "opts": self.model._meta,
-            "ae_payload": _redact_payload(event.payload, can_view_context),
+            "ae_payload": ae_payload,
+            "ae_traceback_text": textformat.format_traceback_text(ae_payload, include_locals=False),
+            "ae_traceback_text_context": (
+                textformat.format_traceback_text(ae_payload, include_locals=True)
+                if can_view_context
+                else ""
+            ),
             "ae_can_view_context": can_view_context,
             "ae_can_change": request.user.has_perm("admin_errors.change_issue"),
             "ae_can_delete": self.has_delete_permission(request, issue),

@@ -32,6 +32,7 @@ All commands run from the repository root, non-interactively, with no venv activ
 | build | `uv run python -m build && uv run twine check dist/*` |
 | **e2e** | `make e2e-up && uv run --extra e2e pytest e2e -q && make e2e-down` |
 | demo (manual) | `make demo` (SQLite) · `make demo-pg` (compose Postgres) |
+| i18n catalogue | `cd src/admin_errors && PYTHONPATH=<repo root> uv run python -m django makemessages -l uk --settings=tests.settings`, translate new `msgid`s, then `... compilemessages` |
 
 `make e2e-up` is idempotent and exits 0 when `demo/` does not exist yet, or when the server already
 answers. Otherwise it migrates, seeds `--reset` (superuser `admin`/`admin`), installs chromium,
@@ -60,6 +61,10 @@ docs/spec.md  docs/dev/adr/  docs/img/
 - Settings are read through `admin_errors.conf.settings`, never from `django.conf.settings` directly —
   the proxy is what makes `override_settings` work in tests.
 - Default transport in tests is `TRANSPORT="sync"`; thread tests opt in and need `transaction=True`.
+- `NOTIFY_BACKEND`'s signal receivers are connected/disconnected dynamically
+  (`notifications.refresh_connections()`, from `ready()` and on `setting_changed`), never always-on —
+  this keeps `storage._fire`'s `has_listeners()` check truthful so the `test_storage.py` query
+  budgets never move when no one is listening.
 - Every phase ends with ruff clean, `uv run pytest -q` green on SQLite, a `CHANGELOG.md` entry under
   *Unreleased*. Never start a phase with a red suite; never skip a test "for later".
 

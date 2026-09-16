@@ -140,6 +140,7 @@ threads and is optimised for never hurting them. The half after the queue owns a
 | `routers.py` | Route `admin_errors` models to a dedicated alias; keep them out of others via `allow_migrate`. | Lets SQLite hosts move error write traffic off the main file — the main mitigation for SQLite write-lock contention. |
 | `signals.py` | `issue_created`, `issue_regressed`, `issue_status_changed`. | The extension point that replaces the rejected Slack/Telegram notifiers (spec §2). |
 | `notifications.py` | `EmailNotifier`, throttled by a conditional `UPDATE`. | Default value for an operator who never opens the admin; separate class so `NOTIFY_BACKEND` can swap it. |
+| `textformat.py` | `format_traceback_text()` — plain-text traceback rendering. | Shared by the notification body and the admin's "Copy as text" button; neither `notifications.py` nor `admin.py` should import the other's layer (p09-plan). |
 | `integrations/celery.py`, `tasks.py` | `task_failure` receiver and a `shared_task` cleanup, both behind guarded imports. | Celery must stay optional; a guarded module is the cheapest way to keep the zero-dependency promise. |
 | `admin.py` + `templates/` + `templatetags/` + `static/` | The whole read UI plus the three status transitions. | ADR 0005. The only component with a human contract. |
 | `management/commands/` | `errors_cleanup`, `errors_test`, `errors_stats`. | The operator's out-of-band controls; `errors_test` is the "is it wired up?" answer in the README FAQ. |

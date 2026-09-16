@@ -35,3 +35,4 @@
 .ae-events-table{width:100%;border-collapse:collapse}
 .ae-events-table th,.ae-events-table td{border-bottom:1px solid var(--hairline-color);padding:4px 8px;text-align:left}
 .ae-empty{color:var(--body-fg);font-style:italic}
+.ae-copy{margin-bottom:8px}

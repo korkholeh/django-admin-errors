@@ -18,6 +18,7 @@ W001_ID = "admin_errors.W001"
 E001_ID = "admin_errors.E001"
 E002_ID = "admin_errors.E002"
 W002_ID = "admin_errors.W002"
+W003_ID = "admin_errors.W003"
 
 _PROPAGATION_SENSITIVE_LOGGERS = ("django.request", "django")
 
@@ -102,3 +103,51 @@ def check_logging_propagation(app_configs: Any = None, **kwargs: Any) -> list[Ch
             )
         )
     return messages
+
+
+def _is_admin_email_handler_config(handler_config: Any) -> bool:
+    if not isinstance(handler_config, dict):
+        return False
+    handler_class = handler_config.get("class") or handler_config.get("()", "")
+    return isinstance(handler_class, str) and handler_class.endswith("AdminEmailHandler")
+
+
+def _handler_names(config: Any) -> set[str]:
+    if not isinstance(config, dict):
+        return set()
+    handlers = config.get("handlers", [])
+    if not isinstance(handlers, (list, tuple)):
+        return set()
+    return {name for name in handlers if isinstance(name, str)}
+
+
+def check_mail_admins_overlap(app_configs: Any = None, **kwargs: Any) -> list[CheckMessage]:
+    """`W003`: Django's `AdminEmailHandler` and `EmailNotifier` both active double-emails."""
+    if settings.NOTIFY_BACKEND is None:
+        return []
+    logging_config = getattr(django_settings, "LOGGING", None) or {}
+    if not isinstance(logging_config, dict):
+        return []
+    handler_configs = logging_config.get("handlers", {})
+    if not isinstance(handler_configs, dict):
+        return []
+    admin_email_handlers = {
+        name for name, config in handler_configs.items() if _is_admin_email_handler_config(config)
+    }
+    if not admin_email_handlers:
+        return []
+    referenced: set[str] = set(_handler_names(logging_config.get("root", {})))
+    loggers_config = logging_config.get("loggers", {})
+    if isinstance(loggers_config, dict):
+        for logger_config in loggers_config.values():
+            referenced.update(_handler_names(logger_config))
+    if not admin_email_handlers & referenced:
+        return []
+    return [
+        Warning(
+            "Django's AdminEmailHandler and admin_errors' EmailNotifier are both active: every "
+            "error-level log record would email admins twice. Remove the AdminEmailHandler now "
+            "that admin_errors sends a deduplicated notification instead.",
+            id=W003_ID,
+        )
+    ]

@@ -1,0 +1,39 @@
+$ uv run pytest -q
+# exit code: 0   # 2026-09-16 04:12:25
+
+........................................................................ [ 20%]
+............................................s........................... [ 41%]
+...................................................ssssss............... [ 61%]
+..s..................................................................... [ 82%]
+..............................................................           [100%]
+=============================== warnings summary ===============================
+tests/test_writer.py::test_connection_is_still_closed_when_the_loop_dies_outside_its_inner_try
+  /Users/korkholeh/Projects/django-admin-errors/.venv/lib/python3.11/site-packages/_pytest/threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread admin_errors-writer
+  
+  Traceback (most recent call last):
+    File "/Users/korkholeh/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/threading.py", line 1045, in _bootstrap_inner
+      self.run()
+    File "/Users/korkholeh/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/threading.py", line 982, in run
+      self._target(*self._args, **self._kwargs)
+    File "/Users/korkholeh/Projects/django-admin-errors/src/admin_errors/writer.py", line 132, in _run
+      timeout = self._time_to_next_flush(batch_started, last_activity)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/Users/korkholeh/Projects/django-admin-errors/tests/test_writer.py", line 401, in flaky_time_to_next_flush
+      raise TypeError("boom")
+  TypeError: boom
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_commands.py:116: only meaningful under DJANGO_DB=postgres
+SKIPPED [1] tests/test_postgres.py:55: only meaningful under DJANGO_DB=postgres
+SKIPPED [1] tests/test_postgres.py:70: only meaningful under DJANGO_DB=postgres
+SKIPPED [1] tests/test_postgres.py:99: only meaningful under DJANGO_DB=postgres
+SKIPPED [1] tests/test_postgres.py:117: only meaningful under DJANGO_DB=postgres
+SKIPPED [1] tests/test_postgres.py:129: only meaningful under DJANGO_DB=postgres
+SKIPPED [1] tests/test_postgres.py:147: only meaningful under DJANGO_DB=postgres
+SKIPPED [1] tests/test_retention.py:282: only meaningful under DJANGO_DB=postgres
+342 passed, 8 skipped, 1 warning in 10.16s

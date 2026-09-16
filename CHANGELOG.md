@@ -157,6 +157,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `e2e/test_admin_ui.py` cover the list, detail, permission-gating and resolve/re-hit/regressed
   flows through a real Chromium session; `e2e/test_screenshots.py` produces the four
   `docs/img/issue-{list,detail}-{light,dark}.png` README screenshots.
+- Email notifications (spec section 10): `admin_errors.notifications.EmailNotifier`, the default
+  `NOTIFY_BACKEND`, sends one plain-text `send_mail` per issue creation/regression to
+  `NOTIFY_RECIPIENTS` (falling back to `django.conf.settings.ADMINS`). A single conditional `UPDATE`
+  on `Issue.notified_at`, executed *before* the send, both throttles repeat notifications
+  (`NOTIFY_THROTTLE_SECONDS`) and is the concurrency contract: only the racer whose `UPDATE` touches
+  a row sends, proved by a two-thread test. `refresh_connections()` connects/disconnects the
+  `issue_created`/`issue_regressed` receivers dynamically (only when `NOTIFY_BACKEND` resolves, the
+  matching reason is in `NOTIFY_ON`, and the backend class's optional `is_enabled()` hook returns
+  `True` — absent hook means enabled; `EmailNotifier.is_enabled()` is the one that requires a
+  non-empty recipient list), so the default test host and any host with `NOTIFY_BACKEND=None` add
+  zero queries to the capture path and every existing `assertNumQueries` budget stays unmoved. `conf.py` gains `NOTIFY_BASE_URL` (prefixed to the admin change-view link in
+  the mail body). New `admin_errors.textformat.format_traceback_text()` renders a CPython-style
+  plain-text traceback (innermost frame last, chained exceptions root-cause-first, optional locals,
+  capped frame count) shared by the notification body and the admin's new "Copy as text" button
+  (`includes/traceback.html`, `admin_errors.js`'s `onCopyClick`, Clipboard API with an
+  `execCommand("copy")` fallback), gated the same way as the traceback itself (redacted payload +
+  `include_locals=view_issue_context`).
+- System check `admin_errors.W003`: warns when `NOTIFY_BACKEND` is set and the host's `LOGGING`
+  config also routes to an `AdminEmailHandler`, since both would mail the same operators about the
+  same errors.
+- Ukrainian translation catalogue (`locale/uk/LC_MESSAGES/django.{po,mo}`, 95 `msgid`s), completing
+  the i18n sweep started in Phase 8; a `.po`-parsing test asserts every `msgid` has a non-empty
+  `msgstr` and admin pages render under `LANGUAGE_CODE="uk"`.
+- `e2e/plans/notifications-i18n.plan.yaml` + `e2e/test_notifications_i18n.py`: a real demo server
+  (console `EMAIL_BACKEND`) writes a "New issue:" notification to its own stdout, a resolve/re-hit
+  cycle flips the status badge to "Regressed", and "Copy as text" flips its label after a real
+  Clipboard API write.
 
 ### Fixed
 

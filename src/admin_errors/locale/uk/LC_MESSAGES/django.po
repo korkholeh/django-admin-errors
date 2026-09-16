@@ -1,0 +1,408 @@
+# Ukrainian translation catalogue for django-admin-errors.
+# This file is distributed under the same license as the admin_errors package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: admin_errors\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-16 00:55+0000\n"
+"PO-Revision-Date: 2026-09-16 00:00+0000\n"
+"Last-Translator: admin_errors maintainers\n"
+"Language-Team: Ukrainian\n"
+"Language: uk\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=4; plural=(n % 1 == 0 && n % 10 == 1 && n % 100 != "
+"11 ? 0 : n % 1 == 0 && n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % "
+"100 > 14) ? 1 : n % 1 == 0 && (n % 10 ==0 || (n % 10 >=5 && n % 10 <=9) || "
+"(n % 100 >=11 && n % 100 <=14 )) ? 2: 3);\n"
+
+#: admin.py:104 models.py:27
+msgid "last seen"
+msgstr "востаннє помічено"
+
+#: admin.py:116
+msgid "Last hour"
+msgstr "Остання година"
+
+#: admin.py:117
+msgid "Last 24 hours"
+msgstr "Останні 24 години"
+
+#: admin.py:118
+msgid "Last 7 days"
+msgstr "Останні 7 днів"
+
+#: admin.py:119
+msgid "Last 30 days"
+msgstr "Останні 30 днів"
+
+#: admin.py:183
+msgid "Issue"
+msgstr "Проблема"
+
+#: admin.py:197 templates/admin/admin_errors/issue/includes/header.html:12
+msgid "Count"
+msgstr "Кількість"
+
+#: admin.py:201 notifications.py:138
+#: templates/admin/admin_errors/issue/includes/header.html:15
+msgid "Last seen"
+msgstr "Востаннє помічено"
+
+#: admin.py:207 notifications.py:137
+#: templates/admin/admin_errors/issue/includes/header.html:13
+msgid "First seen"
+msgstr "Вперше помічено"
+
+#: admin.py:213
+msgid "Status"
+msgstr "Статус"
+
+#: admin.py:217
+msgid "Trend"
+msgstr "Тренд"
+
+#: admin.py:331
+msgid "Issue status updated."
+msgstr "Статус проблеми оновлено."
+
+#: admin.py:366
+msgid "Resolve selected issues"
+msgstr "Вирішити вибрані проблеми"
+
+#: admin.py:370
+msgid "Ignore selected issues"
+msgstr "Ігнорувати вибрані проблеми"
+
+#: admin.py:374
+msgid "Reopen selected issues"
+msgstr "Повторно відкрити вибрані проблеми"
+
+#: admin.py:383
+#, python-format
+msgid "%(count)d issue(s) updated."
+msgstr "Оновлено %(count)d проблем(и)."
+
+#: apps.py:8 templates/admin/admin_errors/issue/event_detail.html:11
+msgid "Errors"
+msgstr "Помилки"
+
+#: models.py:8
+msgid "Critical"
+msgstr "Критична"
+
+#: models.py:9
+msgid "Error"
+msgstr "Помилка"
+
+#: models.py:10
+msgid "Warning"
+msgstr "Попередження"
+
+#: models.py:11
+msgid "Info"
+msgstr "Інформація"
+
+#: models.py:14 templatetags/admin_errors_tags.py:31
+msgid "Open"
+msgstr "Відкрита"
+
+#: models.py:15 templatetags/admin_errors_tags.py:32
+msgid "Resolved"
+msgstr "Вирішена"
+
+#: models.py:16 templatetags/admin_errors_tags.py:33
+msgid "Ignored"
+msgstr "Ігнорована"
+
+#: models.py:18
+msgid "fingerprint"
+msgstr "відбиток"
+
+#: models.py:19
+msgid "exception type"
+msgstr "тип винятку"
+
+#: models.py:20
+msgid "title"
+msgstr "назва"
+
+#: models.py:21
+msgid "culprit"
+msgstr "джерело"
+
+#: models.py:22
+msgid "level"
+msgstr "рівень"
+
+#: models.py:24
+msgid "status"
+msgstr "статус"
+
+#: models.py:26
+msgid "first seen"
+msgstr "вперше помічено"
+
+#: models.py:28 models.py:81
+msgid "count"
+msgstr "кількість"
+
+#: models.py:29
+msgid "resolved at"
+msgstr "вирішено о"
+
+#: models.py:32
+msgid "resolved by"
+msgstr "вирішив(ла)"
+
+#: models.py:40
+msgid "notified at"
+msgstr "сповіщено о"
+
+#: models.py:41
+msgid "last event"
+msgstr "остання подія"
+
+#: models.py:51 models.py:60 models.py:78
+msgid "issue"
+msgstr "проблема"
+
+#: models.py:52
+msgid "issues"
+msgstr "проблеми"
+
+#: models.py:62
+msgid "timestamp"
+msgstr "часова мітка"
+
+#: models.py:63
+msgid "payload"
+msgstr "дані"
+
+#: models.py:69
+msgid "event"
+msgstr "подія"
+
+#: models.py:70
+msgid "events"
+msgstr "події"
+
+#: models.py:80
+msgid "date"
+msgstr "дата"
+
+#: models.py:90
+msgid "issue daily count"
+msgstr "щоденна кількість проблеми"
+
+#: models.py:91
+msgid "issue daily counts"
+msgstr "щоденні кількості проблем"
+
+#: notifications.py:107
+msgid "Regression:"
+msgstr "Регресія:"
+
+#: notifications.py:107
+msgid "New issue:"
+msgstr "Нова проблема:"
+
+#: notifications.py:121
+#, python-format
+msgid "Regression in %(prefix)s"
+msgstr "Регресія в %(prefix)s"
+
+#: notifications.py:123
+#, python-format
+msgid "New issue in %(prefix)s"
+msgstr "Нова проблема в %(prefix)s"
+
+#: notifications.py:133
+msgid "Title"
+msgstr "Назва"
+
+#: notifications.py:134
+msgid "Culprit"
+msgstr "Джерело"
+
+#: notifications.py:135
+msgid "Level"
+msgstr "Рівень"
+
+#: notifications.py:136
+#: templates/admin/admin_errors/issue/includes/occurrences.html:3
+msgid "Occurrences"
+msgstr "Випадки"
+
+#: templates/admin/admin_errors/issue/event_detail.html:10
+msgid "Home"
+msgstr "Головна"
+
+#: templates/admin/admin_errors/issue/event_detail.html:12
+msgid "Issues"
+msgstr "Проблеми"
+
+#: templates/admin/admin_errors/issue/event_detail.html:14
+msgid "Event"
+msgstr "Подія"
+
+#: templates/admin/admin_errors/issue/includes/cards.html:6
+msgid "Unresolved issues"
+msgstr "Невирішені проблеми"
+
+#: templates/admin/admin_errors/issue/includes/cards.html:10
+msgid "Events last 24h"
+msgstr "Події за 24 год"
+
+#: templates/admin/admin_errors/issue/includes/cards.html:14
+msgid "New issues last 24h"
+msgstr "Нові проблеми за 24 год"
+
+#: templates/admin/admin_errors/issue/includes/context_blocks.html:6
+msgid "Celery"
+msgstr "Celery"
+
+#: templates/admin/admin_errors/issue/includes/context_blocks.html:10
+msgid "Extra"
+msgstr "Додатково"
+
+#: templates/admin/admin_errors/issue/includes/dict_table.html:11
+msgid "None."
+msgstr "Немає."
+
+#: templates/admin/admin_errors/issue/includes/frame.html:10
+msgid "Locals"
+msgstr "Локальні змінні"
+
+#: templates/admin/admin_errors/issue/includes/header.html:14
+#: templates/admin/admin_errors/issue/includes/header.html:16
+msgid "ago"
+msgstr "тому"
+
+#: templates/admin/admin_errors/issue/includes/header.html:32
+msgid "Resolve"
+msgstr "Вирішити"
+
+#: templates/admin/admin_errors/issue/includes/header.html:35
+msgid "Ignore"
+msgstr "Ігнорувати"
+
+#: templates/admin/admin_errors/issue/includes/header.html:38
+msgid "Reopen"
+msgstr "Повторно відкрити"
+
+#: templates/admin/admin_errors/issue/includes/header.html:44
+msgid "Delete"
+msgstr "Видалити"
+
+#: templates/admin/admin_errors/issue/includes/occurrences.html:8
+msgid "Timestamp"
+msgstr "Часова мітка"
+
+#: templates/admin/admin_errors/issue/includes/occurrences.html:9
+msgid "Path / task"
+msgstr "Шлях / завдання"
+
+#: templates/admin/admin_errors/issue/includes/occurrences.html:10
+#: templates/admin/admin_errors/issue/includes/request.html:13
+msgid "User"
+msgstr "Користувач"
+
+#: templates/admin/admin_errors/issue/includes/occurrences.html:27
+msgid "No events stored."
+msgstr "Подій не збережено."
+
+#: templates/admin/admin_errors/issue/includes/request.html:4
+msgid "Request"
+msgstr "Запит"
+
+#: templates/admin/admin_errors/issue/includes/request.html:6
+msgid "Method"
+msgstr "Метод"
+
+#: templates/admin/admin_errors/issue/includes/request.html:7
+msgid "Path"
+msgstr "Шлях"
+
+#: templates/admin/admin_errors/issue/includes/request.html:11
+msgid "URL"
+msgstr "URL"
+
+#: templates/admin/admin_errors/issue/includes/request.html:12
+msgid "Remote address"
+msgstr "Віддалена адреса"
+
+#: templates/admin/admin_errors/issue/includes/request.html:16
+msgid "GET"
+msgstr "GET"
+
+#: templates/admin/admin_errors/issue/includes/request.html:18
+msgid "POST"
+msgstr "POST"
+
+#: templates/admin/admin_errors/issue/includes/request.html:20
+msgid "Headers"
+msgstr "Заголовки"
+
+#: templates/admin/admin_errors/issue/includes/request.html:22
+msgid "Cookies"
+msgstr "Куки"
+
+#: templates/admin/admin_errors/issue/includes/server.html:4
+msgid "Server"
+msgstr "Сервер"
+
+#: templates/admin/admin_errors/issue/includes/server.html:6
+msgid "Hostname"
+msgstr "Ім'я хоста"
+
+#: templates/admin/admin_errors/issue/includes/server.html:7
+msgid "PID"
+msgstr "PID"
+
+#: templates/admin/admin_errors/issue/includes/server.html:8
+msgid "Python"
+msgstr "Python"
+
+#: templates/admin/admin_errors/issue/includes/server.html:9
+msgid "Django"
+msgstr "Django"
+
+#: templates/admin/admin_errors/issue/includes/traceback.html:3
+msgid "Traceback"
+msgstr "Трасування"
+
+#: templates/admin/admin_errors/issue/includes/traceback.html:6
+msgid "Copied"
+msgstr "Скопійовано"
+
+#: templates/admin/admin_errors/issue/includes/traceback.html:6
+msgid "Copy as text"
+msgstr "Копіювати як текст"
+
+#: templates/admin/admin_errors/issue/includes/traceback.html:27
+msgid "No event data recorded yet."
+msgstr "Дані про подію ще не записано."
+
+#: templatetags/admin_errors_tags.py:71
+#, python-format
+msgid "Occurrences per day (UTC), last %(n)d days: %(values)s"
+msgstr "Випадки на день (UTC), останні %(n)d днів: %(values)s"
+
+#: templatetags/admin_errors_tags.py:166
+msgid "Regressed"
+msgstr "Регресувала"
+
+#: templatetags/admin_errors_tags.py:195 textformat.py:28
+msgid "The above exception was the direct cause of the following exception:"
+msgstr "Наведений вище виняток був безпосередньою причиною наступного винятку:"
+
+#: templatetags/admin_errors_tags.py:197 textformat.py:30
+msgid "During handling of the above exception, another exception occurred:"
+msgstr "Під час обробки наведеного вище винятку стався ще один виняток:"
+
+#: textformat.py:52
+msgid "Traceback (most recent call last):"
+msgstr "Трасування (найновіший виклик останній):"

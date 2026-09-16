@@ -1,0 +1,40 @@
+# Review — phase 9 round 2
+
+**Verdict:** changes_requested
+
+Phase 9's product code is in good shape and both round-1 majors are genuinely fixed: `traceback.html` now carries its own `perms.admin_errors.view_issue_context` gate with a test that renders the include directly against a deliberately-leaked context value, and `_sync_connection()` gates on a backend `is_enabled()` hook rather than EmailNotifier's `_recipients()`, with a no-ADMINS custom-backend test to prove it. I re-ran the gate: 342 passed / 8 skipped on SQLite, ruff + format + django check + makemigrations --check all clean; msgfmt of the committed .po byte-matches the .mo, 96 msgids, none fuzzy or empty; regenerating the catalogue in a scratch copy yields no new or obsolete msgids. Every acceptance criterion maps to a test that can actually fail, the frozen query budgets and asset-size bounds are untouched, and PLAN.md T1-T13 are all checked with no `[~]` and no environment excuses. One blocker stands: the round-1 log-offset fix to `e2e/test_notifications_i18n.py` is incompatible with that test's deliberate sharing of the `demo_app.views.keyerror` issue with `test_admin_ui.py`, which creates the issue first in the same server process — so the `New issue:` line never appears after the captured offset. I ran the documented e2e command twice from a fresh seed: `1 failed, 18 passed` both times. The fix pass declined to re-run e2e (logged in DECISIONS.md), so PLAN.md T13's 'e2e 19 passed' claim is now false. The round-1 copy-button nit also remains live: `data-ae-copied-state` is removed inside the same 2s revert timer as the label, so the e2e assertion races exactly the timer the fix claimed to sidestep.
+
+## [BLOCKER] e2e suite is red: the r1 log-offset fix is incompatible with the shared-fingerprint design
+`e2e/test_notifications_i18n.py`
+
+The r1 minor#2 fix (`_server_log_contains(..., since=offset)`, captured at line 88) combined with the p09-implement/T12 decision to deliberately share the `demo_app.views.keyerror` issue with `admin-ui.plan.yaml` makes `test_created_email_in_server_log_and_regressed_badge` fail deterministically on the documented command. `e2e/test_admin_ui.py:177` hits `/keyerror/e2e-regression-badge/` first (files run alphabetically, same `runserver` process), so the only `Subject: [...] New issue: KeyError in demo_app.views.keyerror` line is written *before* this test's offset; every later `/keyerror/<key>/` hit is a repeat occurrence of an existing issue and produces no `New issue:` mail. I ran `make e2e-up && uv run --extra e2e pytest e2e -q && make e2e-down` twice from a fresh seed: `1 failed, 18 passed, 1 deselected` both times, failing at line 94 with `AssertionError: expected a 'New issue:' KeyError notification for 'demo_app.views.keyerror'`. The server log confirms the mechanism — the KeyError `New issue:` subject sits at byte ~43709 (written by the admin-ui test), while the notifications test's offset is later than that. This shipped because `.autodev/DECISIONS.md` p09-review_fix1/note1 explicitly declined to re-run e2e after editing the e2e file and the JS, so PLAN.md T13's 'e2e 19 passed' claim is now false.
+
+**Fix:** Point this case at a culprit no other e2e file touches — `/logged/` or `/warning/` are unused by `test_admin_ui.py` and `test_screenshots.py` — keeping `_hit_until_admitted` for the admission bucket, and update the comment at lines 81-85 plus `e2e/plans/notifications-i18n.plan.yaml:29-33` which currently document the sharing as intentional. Alternatively assert on the `Regression:` subject this test's own resolve/re-hit produces (needs `NOTIFY_THROTTLE_SECONDS` low enough in the demo, which currently is not set, so the 3600s default would suppress it). Then re-run the full `make e2e-up && uv run --extra e2e pytest e2e -q && make e2e-down`.
+
+## [MINOR] The r1 nit fix does not remove the 2s race it was meant to remove
+`e2e/test_notifications_i18n.py`
+
+`.autodev/DECISIONS.md` p09-review_fix1/nit1 states `data-ae-copied-state` is "cleared only when the 2s revert timer fires" and "doesn't self-clear on the same schedule as a false negative would require". `admin_errors.js`'s revert timer does `button.textContent = original; button.removeAttribute("data-ae-copied-state")` in the *same* `setTimeout(..., 2000)` callback, so the new attribute clears on exactly the same schedule as the label. `expect(button).to_have_attribute("data-ae-copied-state", "1")` at line 134 therefore races the identical 2s timer the original nit named, and line 135 still asserts the label too — the fix changed nothing about the failure mode.
+
+**Fix:** Either set a latch that never clears (e.g. `data-ae-copied-count` incremented on each successful copy, left in place) and assert on that, or make the revert delay configurable from a data attribute the test can raise.
+
+## [MINOR] CHANGELOG and the notifications module docstring still describe the pre-fix connection predicate
+`CHANGELOG.md`
+
+The *Unreleased* entry says `refresh_connections()` connects "only when `NOTIFY_BACKEND`, `NOTIFY_ON` and a non-empty recipient list all agree". After the r1 major#2 fix that is wrong for exactly the case the fix was about: a custom backend with no `is_enabled` hook connects with no ADMINS and no `NOTIFY_RECIPIENTS` (proved by `test_custom_notify_backend_is_used_without_admins_or_recipients`). `src/admin_errors/notifications.py:9-12`'s module docstring has the same stale wording ("or no recipients configured … no receiver is attached"), which now holds only for `EmailNotifier`. A host reading either would conclude a recipient list is a master switch for every backend.
+
+**Fix:** Reword both to: the receivers connect when `NOTIFY_BACKEND` resolves, `reason` is in `NOTIFY_ON`, and the backend class's optional `is_enabled()` returns True (absent hook = enabled); `EmailNotifier.is_enabled()` is the one that requires recipients. Worth documenting `is_enabled()` as part of the backend contract in the Phase 10 README, since it is now a public extension point.
+
+## [MINOR] The 'regression after resolve is silently throttled' minor was rejected on a premise that does not hold
+`.autodev/DECISIONS.md`
+
+p09-review_fix1/minor-rejected argues that clearing `notified_at` on RESOLVE would force weakening `test_throttle_suppresses_second_notification_inside_window`, which CLAUDE.md forbids. That test (tests/test_notifications.py:226-243) itself resolves the issue between the two occurrences, so it is not testing plain repeat-occurrence throttling at all — it is testing the very behaviour under dispute. A non-resolving variant (two occurrences of an open issue inside the window) would prove the spec §10 throttle just as well and would not conflict. Leaving the behaviour as-is is a defensible call, but it should rest on the spec-literal reading, not on a false 'this would weaken a test' constraint — and with the default `NOTIFY_THROTTLE_SECONDS=3600` the phase goal 'the operator hears about … a regression' is silent for the canonical resolve-then-regress-10-minutes-later flow.
+
+**Fix:** Keep the behaviour if that is the call, but restate the reason in DECISIONS.md and make the Phase 10 README/FAQ note next to `NOTIFY_THROTTLE_SECONDS` a tracked item rather than a passing mention, so the silence is documented for operators.
+
+## [NIT] Committed .po source references are stale after the fix pass
+`src/admin_errors/locale/uk/LC_MESSAGES/django.po`
+
+Regenerating the catalogue in a scratch copy produces an identical set of msgids (no new, no obsolete, no empty msgstr — the acceptance criterion holds), but the `#:` reference lines differ: `notifications.py:100 -> 104`, `admin.py:326 -> 331`, `traceback.html:23 -> 27`, and so on, because the r1 fixes shifted those lines after `makemessages` was last run. PLAN.md T10's 'byte-identical .po' claim is no longer true.
+
+**Fix:** Re-run `cd src/admin_errors && PYTHONPATH=<repo root> uv run python -m django makemessages -l uk --settings=tests.settings` and commit the refreshed references (no translation work needed).
