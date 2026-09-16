@@ -43,6 +43,8 @@ postgres = ["psycopg[binary]>=3.1"]
 dev = [
   "pytest",
   "pytest-django",
+  # tests/test_docs.py parses pyproject.toml; tomllib is stdlib only from 3.11.
+  "tomli; python_version < '3.11'",
   "pytest-cov",
   "coverage",
   "ruff",

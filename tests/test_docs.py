@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import importlib.metadata
 import re
+import sys
 from pathlib import Path
 
-import tomllib
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # Python 3.10 has no tomllib; `tomli` is its backport, same API.
+    import tomli as tomllib
 
 import admin_errors
 from admin_errors.conf import DEFAULTS

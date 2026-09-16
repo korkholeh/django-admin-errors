@@ -7,6 +7,14 @@ from django.test import override_settings
 from admin_errors import checks
 from admin_errors.conf import DEFAULTS, settings
 
+# Django 6.1's `JSONField._check_supported` reads `connection.features.supports_json_field`
+# whatever `databases` it was given (django/db/models/fields/json.py), so `run_checks()` now opens
+# a connection and pytest-django blocks it without database access. These are checks tests; the
+# connection is only probed for its feature flags, and every assertion below is about the messages
+# the checks return, not about rows. `databases="__all__"` because the checks walk every alias in
+# `DATABASES`, including the dedicated `errors` one the router tests configure.
+pytestmark = pytest.mark.django_db(databases="__all__")
+
 # Literal expected table from spec section 5 — not re-derived from DEFAULTS, so a change to one
 # without the other fails this test.
 EXPECTED_DEFAULTS = {
@@ -151,13 +159,19 @@ def test_w002_propagate_false_without_admin_errors_handler():
         "version": 1,
         "loggers": {"django.request": {"handlers": ["console"], "propagate": False}},
     }
-    with override_settings(LOGGING=logging_config):
+    with override_settings(LOGGING_CONFIG=None, LOGGING=logging_config):
         messages = [m for m in run_checks() if m.id == checks.W002_ID]
     assert len(messages) == 1
     assert isinstance(messages[0], Warning)
     assert "django.request" in messages[0].msg
 
 
+# `LOGGING_CONFIG=None` on every `LOGGING` override below: these dicts are *input to the checks*,
+# not working logging configurations — several name a handler they never define, and one is a list
+# where a mapping belongs. Django's `update_logging_config` receiver feeds any overridden `LOGGING`
+# straight to `dictConfig`, which raises on them under Django 6.1; `LOGGING_CONFIG=None` is
+# Django's own switch for "do not configure logging", so the setting stays readable by the checks
+# without being applied.
 def test_w002_silent_when_admin_errors_handler_present():
     logging_config = {
         "version": 1,
@@ -166,7 +180,7 @@ def test_w002_silent_when_admin_errors_handler_present():
             "django.request": {"handlers": ["admin_errors"], "propagate": False},
         },
     }
-    with override_settings(LOGGING=logging_config):
+    with override_settings(LOGGING_CONFIG=None, LOGGING=logging_config):
         messages = [m for m in run_checks() if m.id == checks.W002_ID]
     assert messages == []
 
@@ -176,7 +190,7 @@ def test_w002_propagate_false_on_django_logger():
         "version": 1,
         "loggers": {"django": {"handlers": ["console"], "propagate": False}},
     }
-    with override_settings(LOGGING=logging_config):
+    with override_settings(LOGGING_CONFIG=None, LOGGING=logging_config):
         messages = [m for m in run_checks() if m.id == checks.W002_ID]
     assert len(messages) == 1
     assert "django" in messages[0].msg
@@ -194,7 +208,7 @@ def test_w002_silent_when_admin_errors_handler_declared_via_factory_key():
             "django.request": {"handlers": ["admin_errors"], "propagate": False},
         },
     }
-    with override_settings(LOGGING=logging_config):
+    with override_settings(LOGGING_CONFIG=None, LOGGING=logging_config):
         messages = [m for m in run_checks() if m.id == checks.W002_ID]
     assert messages == []
 
@@ -205,7 +219,7 @@ def test_w003_mail_admins_overlap():
         "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
         "root": {"handlers": ["mail_admins"], "level": "ERROR"},
     }
-    with override_settings(LOGGING=logging_config):
+    with override_settings(LOGGING_CONFIG=None, LOGGING=logging_config):
         messages = [m for m in run_checks() if m.id == checks.W003_ID]
     assert len(messages) == 1
     assert isinstance(messages[0], Warning)
@@ -217,7 +231,9 @@ def test_w003_silent_when_notify_backend_none():
         "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
         "root": {"handlers": ["mail_admins"], "level": "ERROR"},
     }
-    with override_settings(LOGGING=logging_config, ADMIN_ERRORS={"NOTIFY_BACKEND": None}):
+    with override_settings(
+        LOGGING_CONFIG=None, LOGGING=logging_config, ADMIN_ERRORS={"NOTIFY_BACKEND": None}
+    ):
         messages = [m for m in run_checks() if m.id == checks.W003_ID]
     assert messages == []
 
@@ -227,7 +243,7 @@ def test_w003_silent_when_handler_unreferenced():
         "version": 1,
         "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
     }
-    with override_settings(LOGGING=logging_config):
+    with override_settings(LOGGING_CONFIG=None, LOGGING=logging_config):
         messages = [m for m in run_checks() if m.id == checks.W003_ID]
     assert messages == []
 
@@ -260,7 +276,7 @@ def test_w003_tolerates_malformed_logging_shapes():
         },
         "not-a-dict-at-all",
     ):
-        with override_settings(LOGGING=logging_config):
+        with override_settings(LOGGING_CONFIG=None, LOGGING=logging_config):
             assert checks.check_mail_admins_overlap() == []
 
 
@@ -270,6 +286,6 @@ def test_w003_triggers_via_a_named_logger_not_only_root():
         "handlers": {"mail_admins": {"class": "django.utils.log.AdminEmailHandler"}},
         "loggers": {"django.request": {"handlers": ["mail_admins"], "level": "ERROR"}},
     }
-    with override_settings(LOGGING=logging_config):
+    with override_settings(LOGGING_CONFIG=None, LOGGING=logging_config):
         messages = [m for m in run_checks() if m.id == checks.W003_ID]
     assert len(messages) == 1
