@@ -130,3 +130,22 @@ if os.environ.get("ADMIN_ERRORS_TEST_ADMIN_SITE_FALSE") == "1":
     # `ADMIN_SITE=False` skips the default registration needs a fresh interpreter booted with
     # the setting already in place.
     ADMIN_ERRORS["ADMIN_SITE"] = False
+
+if os.environ.get("ADMIN_ERRORS_TEST_EXPLICIT_LOGGING") == "1":
+    # Only ever set by test_capture.py's subprocess test: the README's "Explicit LOGGING wiring"
+    # snippet, which `admin_errors.W002` tells a project to use whenever it sets
+    # `propagate: False` on `django.request`. `django.setup()` configures logging before the app
+    # registry is populated, so this shape can only be exercised by booting an interpreter with it
+    # already in settings.
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "handlers": {
+            "admin_errors": {
+                "class": "admin_errors.handlers.AdminErrorsHandler",
+                "level": "ERROR",
+            },
+        },
+        "root": {"handlers": ["admin_errors"], "level": "WARNING"},
+    }
+    ADMIN_ERRORS["AUTO_INSTALL_LOGGING_HANDLER"] = False

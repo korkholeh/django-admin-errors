@@ -86,11 +86,16 @@ Two optional steps:
       "version": 1,
       "disable_existing_loggers": False,
       "handlers": {
+          "console": {"class": "logging.StreamHandler"},
           "admin_errors": {"class": "admin_errors.handlers.AdminErrorsHandler", "level": "ERROR"},
       },
       "root": {"handlers": ["console", "admin_errors"], "level": "WARNING"},
   }
   ```
+
+  This is also the wiring `admin_errors.W002` asks for when a project sets `propagate: False` on
+  `django.request` or `django`: without the handler named on that logger, unhandled view exceptions
+  never reach the root logger and are silently not captured.
 
   If you set this explicitly, also set `ADMIN_ERRORS = {"AUTO_INSTALL_LOGGING_HANDLER": False}` to
   avoid a second, redundant handler instance.

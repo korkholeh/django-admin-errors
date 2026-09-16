@@ -161,17 +161,22 @@ def test_readme_faq_maps_each_silent_failure_to_an_instrument() -> None:
     assert not missing, f"README FAQ is missing references to: {missing}"
 
 
-def test_changelog_has_a_released_0_1_0_section() -> None:
+def test_changelog_has_a_released_section_for_the_current_version() -> None:
+    version = admin_errors.__version__
     text = _changelog_text()
-    match = re.search(r"^## \[0\.1\.0\] .* \d{4}-\d{2}-\d{2}", text, re.MULTILINE)
-    assert match, "CHANGELOG.md has no '## [0.1.0] - YYYY-MM-DD' heading"
+    match = re.search(
+        rf"^## \[{re.escape(version)}\] .* \d{{4}}-\d{{2}}-\d{{2}}", text, re.MULTILINE
+    )
+    assert match, f"CHANGELOG.md has no '## [{version}] - YYYY-MM-DD' heading"
     unreleased_match = re.search(
         r"^## \[Unreleased\]\s*\n(.*?)(?=^## \[)", text, re.MULTILINE | re.DOTALL
     )
     assert unreleased_match, "CHANGELOG.md has no [Unreleased] section above the release"
     leftover = unreleased_match.group(1).strip()
     ok = leftover == "" or len(leftover.splitlines()) <= 2
-    assert ok, f"[Unreleased] should be a placeholder once 0.1.0 is released, found: {leftover!r}"
+    assert ok, (
+        f"[Unreleased] should be a placeholder once {version} is released, found: {leftover!r}"
+    )
 
 
 def test_changelog_0_1_0_records_benchmark_numbers() -> None:
@@ -185,11 +190,16 @@ def test_changelog_0_1_0_records_benchmark_numbers() -> None:
 
 
 def test_version_matches_changelog() -> None:
-    assert admin_errors.__version__ == "0.1.0"
+    """`__version__` is what the release workflow checks the tag against, so the newest CHANGELOG
+    heading has to be the same string — derived from `__version__` rather than pinned to a literal,
+    so a release bump does not have to edit this test to stay honest."""
+    version = admin_errors.__version__
     text = _changelog_text()
     headings = re.findall(r"^## \[(\d+\.\d+\.\d+)\]", text, re.MULTILINE)
     assert headings, "no version headings found in CHANGELOG.md"
-    assert headings[0] == "0.1.0", f"newest CHANGELOG heading is {headings[0]!r}, expected '0.1.0'"
+    assert headings[0] == version, (
+        f"newest CHANGELOG heading is {headings[0]!r}, expected {version!r}"
+    )
 
 
 def test_django_is_the_only_runtime_dependency() -> None:

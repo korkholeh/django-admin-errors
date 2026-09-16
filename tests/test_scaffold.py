@@ -11,7 +11,19 @@ from tests.settings import database_from_url
 
 
 def test_version() -> None:
-    assert admin_errors.__version__ == "0.1.0"
+    """A PEP 440 release version, and the same one the installed distribution reports.
+
+    Not pinned to a literal: `src/admin_errors/__init__.py` is the single place a release bump
+    edits, `pyproject.toml` reads it through hatchling, and
+    `test_docs.py::test_version_matches_changelog` holds it to the newest CHANGELOG heading. A
+    second copy here would only ever be a second thing to forget.
+    """
+    import importlib.metadata
+    import re
+
+    version = admin_errors.__version__
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+    assert importlib.metadata.version("django-admin-errors") == version
 
 
 def test_app_config() -> None:

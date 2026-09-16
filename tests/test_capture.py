@@ -447,3 +447,53 @@ def test_thread_transport_end_to_end_via_client_and_flush():
         api.flush()
 
     assert Issue.objects.count() == 1
+
+
+def test_explicit_logging_handler_boots_and_captures_subprocess():
+    """The README's "Explicit LOGGING wiring" snippet must survive `django.setup()`.
+
+    Reported against 0.1.0 by a project adopting the library: naming the handler in `LOGGING`
+    failed at startup with `ValueError: Unable to configure handler 'admin_errors'`.
+    `django.setup()` runs `configure_logging()` before `apps.populate()`, so `dictConfig`
+    constructs the handler class while the app registry is still empty; `handlers.py` imported
+    `capture` at module scope, which reaches `admin_errors.models`, and the resulting
+    `AppRegistryNotReady` surfaced as that `ValueError`.
+
+    Only a fresh interpreter can show this: by the time this test module is imported, the registry
+    is long since populated and the eager import would succeed. The subprocess also captures a
+    record afterwards, so a handler that boots but never writes anything would still fail here.
+    """
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    script = (
+        "import django; django.setup(); "
+        "from django.core.management import call_command; "
+        "call_command('migrate', verbosity=0); "
+        "import logging; "
+        "from admin_errors import api; "
+        "from admin_errors.models import Issue; "
+        "logging.getLogger('explicit').error('wired through LOGGING'); "
+        "api.flush(); "
+        "assert Issue.objects.count() == 1, Issue.objects.count(); "
+        "print('OK', Issue.objects.get().title)"
+    )
+    env = {
+        **os.environ,
+        "DJANGO_SETTINGS_MODULE": "tests.settings",
+        "ADMIN_ERRORS_TEST_EXPLICIT_LOGGING": "1",
+        "PYTHONPATH": str(repo_root),
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=env,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "OK wired through LOGGING" in result.stdout

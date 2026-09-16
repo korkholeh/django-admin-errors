@@ -10,6 +10,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [0.1.1] — 2026-09-16
+
+### Fixed
+
+- **Naming the handler in `LOGGING` crashed at startup.** A project that wired the handler
+  explicitly, as the README's *Explicit `LOGGING` wiring* section and the `admin_errors.W002`
+  check both describe, got `ValueError: Unable to configure handler 'admin_errors'` from
+  `django.setup()`. `setup()` calls `configure_logging()` before `apps.populate()`, so `dictConfig`
+  constructed `AdminErrorsHandler` while the app registry was still empty — and `handlers.py`
+  imported `admin_errors.capture` at module scope, which reaches `admin_errors.models`. The import
+  now happens inside `emit()`, so the class costs nothing but the standard library to construct,
+  and a record logged before the registry is ready is dropped instead of raising out of a logging
+  handler. `AUTO_INSTALL_LOGGING_HANDLER` (the default) was never affected: `ready()` runs after
+  the registry is populated.
+
+  Reported against 0.1.0 by a project adopting the library. Pinned by a subprocess test, since any
+  in-process test runs long after the registry is populated and would pass either way.
+
+- README: the `LOGGING` snippet referenced a `console` handler it never defined, so copying it
+  verbatim raised `ValueError: Unable to add handler 'console'`. It is now self-contained, and
+  says in one line why W002 asks for this wiring.
+
 ## [0.1.0] — 2026-09-16
 
 First release. Sentry-style error tracking inside the Django admin: unhandled exceptions and
