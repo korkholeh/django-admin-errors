@@ -114,6 +114,9 @@ ADMIN_ERRORS = {
     "EVENT_RETENTION_DAYS": 7,
     "MAX_ISSUES": 200,
     "INTERNAL_LOGGING": True,
+    # Worked example of the hook, and the reason the README screenshots carry no home directory:
+    # frame filenames under the repository root are stored relative to it. See the module.
+    "BEFORE_SEND": "demo_project.payload_tidy.tidy_payload",
 }
 
 LOGGING = {

@@ -97,11 +97,27 @@ class Command(BaseCommand):
         parser.add_argument(
             "--reset", action="store_true", help="Delete existing admin_errors rows first."
         )
+        parser.add_argument(
+            "--backfill-history",
+            type=int,
+            default=None,
+            metavar="ISSUE_ID",
+            help=(
+                "Give one existing issue a --days history of daily counts instead of seeding "
+                "new ones. Its events, payload and status are left alone, so an issue captured "
+                "from a real request keeps its request context and traceback while gaining the "
+                "occurrence chart a day-old issue cannot have."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         n_issues = options["issues"]
         n_days = options["days"]
         alias = conf.DATABASE
+
+        if options["backfill_history"] is not None:
+            self._backfill_history(options["backfill_history"], n_days, alias)
+            return
 
         max_issues = len(_EXCEPTIONS) * len(_CULPRITS)
         if n_issues > max_issues:
@@ -189,6 +205,43 @@ class Command(BaseCommand):
         issue.count = total_count
         issue.status, issue.resolved_at = self._status_for(i, rng, first_seen, last_seen)
         issue.save(using=alias)
+
+    def _backfill_history(self, issue_id: int, n_days: int, alias: str) -> None:
+        """Give `issue_id` a `n_days` history of daily counts, leaving everything else intact.
+
+        `_seed_one` fabricates a whole issue; this only fabricates the part of one that time
+        alone can produce. `last_seen`, the stored events and the payload behind them are left
+        untouched, so an issue captured from a real request keeps its traceback, its scrubbed
+        request block and its place at the top of a `-last_seen` list while its occurrence chart
+        stops being the single bar a minutes-old issue can draw.
+        """
+        try:
+            issue = Issue.objects.using(alias).get(pk=issue_id)
+        except Issue.DoesNotExist:
+            raise CommandError(f"no issue with id {issue_id}") from None
+
+        rng = random.Random(_SEED)
+        last_date = issue.last_seen.date()
+        first_seen = timezone.make_aware(
+            datetime.datetime.combine(
+                last_date - datetime.timedelta(days=max(n_days - 1, 0)), datetime.time()
+            )
+        )
+
+        daily_counts = self._random_walk_daily_counts(rng, first_seen.date(), last_date)
+        IssueDailyCount.objects.using(alias).filter(issue=issue).delete()
+        IssueDailyCount.objects.using(alias).bulk_create(
+            IssueDailyCount(issue=issue, date=date, count=count)
+            for date, count in daily_counts.items()
+        )
+
+        issue.first_seen = first_seen
+        issue.count = sum(daily_counts.values())
+        issue.save(using=alias)
+        self.stdout.write(
+            f"backfilled {len(daily_counts)} day(s) onto issue {issue_id} "
+            f"({issue.exception_type}), count now {issue.count}"
+        )
 
     def _random_walk_daily_counts(
         self, rng: random.Random, start: datetime.date, end: datetime.date
