@@ -14,8 +14,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       - run: uv run tox -e lint
 
   sqlite-matrix:
@@ -36,8 +36,8 @@ jobs:
           - { toxenv: "py313-dj60-sqlite" }
           - { toxenv: "py313-dj61-sqlite" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       - run: >
           uv run tox -e ${{ matrix.toxenv }} --
           -q --cov=admin_errors --cov-report=term-missing --cov-fail-under=90
@@ -58,24 +58,24 @@ jobs:
       DJANGO_DB: postgres
       ADMIN_ERRORS_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/admin_errors_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       - run: uv run tox -e py313-dj52-postgres,py313-dj61-postgres
 
   celery:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       - run: uv run tox -e celery
 
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       - run: uv run tox -e package
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/*
