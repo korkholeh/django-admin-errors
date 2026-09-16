@@ -1560,3 +1560,64 @@ so `grep -n '^## '` is the index and a session can read only the part it needs.
   against the current code (settings table via `tests/test_docs.py`, retention/notification
   numbers against `conf.DEFAULTS`, benchmark figures against `BENCH.md`, Makefile targets, ADR
   list) and found already true — no further edits made.
+
+## finalize
+
+
+- [finalize/e2e-truth] Re-ran the full e2e cycle on a genuinely fresh server (`make e2e-up` after
+  proving nothing was listening: `lsof -nP -iTCP:8000 -sTCP:LISTEN` empty and no
+  `.autodev/e2e-server.pid`) and got `25 passed, 1 deselected in 26.43s`, exit 0, then `make
+  e2e-down` — so PROGRESS.md's phase-10 warning ("e2e still failing after 3 fix attempts, 3 failed /
+  22 passed") records a run that predates `p10-e2e_fix3`'s landing and a drained process-global
+  sampling bucket, not a live product defect — why: this is the last session and the one claim a
+  morning reader would most likely act on; leaving it uncorrected would send them debugging three
+  non-bugs — alternatives: edit PROGRESS.md's warning directly (rejected — PROGRESS.md is
+  orchestrator-owned state, and rewriting a recorded run's result would destroy the audit trail);
+  correction is recorded in `.autodev/HANDOFF.md` instead, with the evidence.
+- [finalize/changelog] Rewrote `CHANGELOG.md`'s `[0.1.0]` section from a phase-ordered development
+  journal into reader-facing groups (frozen contracts first, then capture, storage/writer, admin,
+  notifications, bounded storage, operations, compatibility, performance, known limits,
+  documentation, and a clearly-labelled "Fixed before release") — why: the guide's release-notes
+  rule is "user-visible changes grouped by impact, breaking changes and migrations first", and the
+  previous section narrated the build order, which tells a reader nothing about what they are
+  installing; the pre-release "Fixed" items were kept rather than deleted because each marks a trap
+  (nested admin forms, `|default:` on a missing dict key) worth knowing — alternatives: leave it as
+  the journal (rejected, it was 190 lines of phase narrative), delete the Fixed section outright
+  (rejected, it discards the only record of two real UI bugs). `tests/test_docs.py` (12 cases,
+  including the benchmark-row and `[Unreleased]`-placeholder invariants) still green.
+- [finalize/architecture-doc] `docs/dev/architecture.md` is a new document reconciled against the
+  built code, not a copy of `.autodev/ARCHITECTURE.md`, and ends with an explicit "Divergences from
+  the design of record" table naming each gap and the decision that caused it (Aggregate's sixth
+  `dates` field, six delete rules not seven, 40 settings keys not 39, the real `store_batch` query
+  budgets 7/15 vs the designed 3/7, `ready()` lowering the root logger, dynamic notification
+  receivers, `context.sanitize_text`, `textformat.py`, the writer's shutdown connection close) —
+  why: the step's rule is "the built system is the truth; note the divergence and link the
+  decision", and a silent reconciliation would lose why each gap exists — alternatives: edit
+  `.autodev/ARCHITECTURE.md` in place (rejected — it is the design of record for this run and its
+  value is as a before/after pair with the built system).
+- [finalize/docs-accuracy] Corrected `docs/user/triage-issues.md`'s summary-card description to the
+  three real labels read out of `includes/cards.html` (**Unresolved issues**, **Events last 24h**,
+  **New issues last 24h**) and documented what each actually counts — in particular that
+  "Events last 24h" sums the `IssueDailyCount` rows for today and yesterday *by UTC date*
+  (`admin.py::_summary_cards`), which is a calendar-day span, not a rolling 24-hour window — why:
+  user-docs rule 2 requires the real on-screen label, and the previous text invented "and similar
+  at-a-glance counts" for a card it had not read; the UTC-date detail is a genuine label/behaviour
+  mismatch a reader would otherwise mis-trust. The product was not changed (this step forbids it);
+  the mismatch is flagged in `.autodev/HANDOFF.md`.
+- [finalize/verification] Verified every command this repository documents by running it rather than
+  citing a previous session: `uv sync --all-extras` (exit 0), `uv run pytest -q` (357 passed, 8
+  skipped), `make test-pg` (365 passed, container torn down), coverage (91 %), the four-command lint
+  gate (all green), the full e2e cycle (25 passed, 1 deselected), `python -m build` + `twine check`
+  (both PASSED), `tox -e package` (exit 0, `package_smoke: OK`), and
+  `benchmarks/bench_capture.py` (every budget met; p50 1.348 / 1.682 / 0.013 ms, reproducing the
+  documented table within noise) — why: the step forbids certifying a command that was not run, and
+  the documented benchmark table is a claim a reader will check — not run and stated as such in
+  HANDOFF: `uv run tox` (the full matrix needs four interpreters), the `makemessages`/
+  `compilemessages` round trip (it would rewrite the committed catalogue), and `make demo`/`demo-pg`
+  (same migrate/seed/runserver path as the verified `make e2e-up`).
+- [finalize/claude-md] Replaced CLAUDE.md's stale "Exactly one migration ships in 0.1.0; squash
+  before release" with the released truth (one migration was ever created, no squash happened,
+  everything after 0.1.0 is additive), and added a pitfall for the e2e shared-fingerprint sampling
+  budget plus a docs index pointing at `docs/dev/architecture.md` — why: CLAUDE.md is read by every
+  future session, and an instruction to do a squash that is already moot is the most expensive kind
+  of stale line.

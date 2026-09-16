@@ -2,9 +2,16 @@
 
 ## The issue list
 
-The **Issues** changelist opens on three summary cards (open issues, events in the last 24 hours,
-and similar at-a-glance counts), followed by a table of issues, most recently seen first. Each row
-shows:
+The **Issues** changelist opens on three summary cards, followed by a table of issues, most recently
+seen first. The cards are:
+
+- **Unresolved issues** — how many issues are currently Open (this includes regressed ones;
+  Resolved and Ignored issues are not counted).
+- **Events last 24h** — occurrences recorded today and yesterday, counted by UTC date. Early in the
+  UTC day this covers a little over 24 hours, and late in it a little under.
+- **New issues last 24h** — issues seen for the very first time in the last 24 hours.
+
+Each row of the table shows:
 
 - a **status badge** — Open, Resolved, Ignored, or Regressed (see below);
 - the exception type and a short message;

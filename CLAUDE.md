@@ -48,7 +48,8 @@ tests/              pytest; tests/settings.py is the minimal host
 e2e/                pytest-playwright specs against demo/
 benchmarks/         bench_capture.py, not a test
 demo/               full Django project: manual QA, screenshots, PG target; never in the wheel
-docs/spec.md  docs/dev/adr/  docs/img/  docs/user/ (operator-facing docs, task-shaped)
+docs/spec.md  docs/dev/architecture.md  docs/dev/adr/  docs/img/
+docs/user/ (operator-facing docs, task-shaped)
 ```
 
 `tox -e package` ends by running `tests/package_smoke.py` with the clean venv's own interpreter,
@@ -87,7 +88,16 @@ installed wheel, not just that it imports.
 - N+1 hides in admin templates (14-day sparkline × 50 rows). One filtered `Prefetch`;
   `assertNumQueries` bounds: list ≤ 12, detail ≤ 15.
 - The fingerprint algorithm is a frozen contract pinned by golden-value tests (ADR 0003).
-- Exactly one migration ships in 0.1.0; squash before release.
+- Exactly one migration ships (`0001_initial`, pinned by `tests/test_docs.py`). 0.1.0 needed no
+  squash — only one was ever created. Everything after 0.1.0 must be additive.
 - Never store settings or environment in a payload, unlike Django's debug page.
+- `e2e/` shares one long-lived demo server, and sampling budgets are process-global per fingerprint.
+  A suite that re-hits `/boom/` from many files drains that budget. Give a new e2e case its own demo
+  URL rather than reusing a shared one, and restart the server (`make e2e-down && make e2e-up`)
+  before trusting a red run.
 
-Autodev docs: .autodev/ (ARCHITECTURE.md, RISKS.md, ROADMAP.md, PROGRESS.md, DECISIONS.md, phases/NN-*/PLAN.md)
+Docs: `docs/dev/architecture.md` (how it fits together, and where it diverged from the design of
+record), `docs/dev/adr/` (the eight accepted decisions), `docs/user/` (operator guide),
+`docs/spec.md` (the implementation spec everything was built from).
+
+Autodev docs: .autodev/ (HANDOFF.md, ARCHITECTURE.md, RISKS.md, ROADMAP.md, PROGRESS.md, DECISIONS.md, phases/NN-*/PLAN.md)

@@ -1,14 +1,14 @@
 # Autodev progress — django-admin-errors
 
 - **Status:** running
-- **Current:** phase 10/10 · step `commit`
+- **Current:** finished
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260915-1213`
 - **Stack:** Python 3.10-3.13, Django 4.2/5.2/6.0/6.1, SQLite + PostgreSQL 13+, zero runtime deps beyond Django, hatchling src-layout wheel, pytest + pytest-django, ruff, tox, pytest-playwright for e2e · **Profile:** `django-htmx`
 - **Test command:** `uv run pytest -q` · **E2E:** `uv run --extra e2e pytest e2e -q`
 - **Usage:** 5h ? (reset 16.09 08:40) · 7d ?
-- **Totals:** 104 sessions · 9.5 h agent time · ≈$171.80 API-equivalent
-- **Clock:** 17.8 h since the run was created · 9.5 h working · 6.1 h paused on the usage limit · 2.2 h not running
-- **Updated:** 2026-09-16 05:58:24
+- **Totals:** 105 sessions · 9.7 h agent time · ≈$179.11 API-equivalent
+- **Clock:** 18.0 h since the run was created · 9.7 h working · 6.1 h paused on the usage limit · 2.2 h not running
+- **Updated:** 2026-09-16 06:10:43
 
 ## Phases
 
@@ -23,7 +23,7 @@
 | 7 | Demo project | yes | ✅ done | 3a7d483 |  |
 | 8 | Admin UI | yes | ✅ done | 56b4a5c | review round 2 changed the working tree itself (docs/img/issue-detail-dark.png, docs/img/issue-detail-dark.png, docs/img/issue-detail-light.png, docs/img/issue-detail-light.png, docs/img/issue-list-dark.png +3 more); those edits are part of this phase's commit, unreviewed |
 | 9 | Notifications, status transitions and i18n | yes | ✅ done | ef71f63 |  |
-| 10 | Documentation, release readiness and final verification | yes | 🔨 in_progress |  |  |
+| 10 | Documentation, release readiness and final verification | yes | ✅ done | fc399d1 | e2e still failing after 3 fix attempts (exit 1: 3 failed, 22 passed, 1 deselected in 24.82s) — see .autodev/phases/10-docs-and-release/E2E_OUTPUT.txt |
 
 ## Timeline
 
@@ -202,6 +202,10 @@
 - `2026-09-16 05:54:52` **p10-e2e** — fail: exit 1: 3 failed, 22 passed, 1 deselected in 24.82s
 - `2026-09-16 05:55:03` **p10-tests** — pass: exit 0: 357 passed, 8 skipped, 1 warning in 10.19s (after e2e fixes)
 - `2026-09-16 05:58:24` **p10-docs** — done (3m, $1.61): Verified phase 10's doc/release surfaces against current code. Fixed one stale claim in docs/user/getting-started.md: the errors_test walkthrough quoted an exact issue title `AdminErrorsTestError: admin_errors errors_test: ...` that the product never produces (title is the message only, per capture…
+- `2026-09-16 05:58:24` **commit** — command files: this commit changes what the project's own commands run: tox.ini
+- `2026-09-16 05:58:24` **p10-commit** — done: fc399d1
+- `2026-09-16 05:58:26` **push** — done: korkholeh/django-admin-errors@autodev/spec-20260915-1213 as korkholeh
+- `2026-09-16 06:10:43` **finalize** — done (12m, $7.31): Shippable: django-admin-errors 0.1.0 is complete and verified this session — uv run pytest -q 357 passed/8 skipped on SQLite, make test-pg 365 passed on PostgreSQL, coverage 91%, the four-command lint gate green, the full e2e cycle 25 passed/1 deselected on a freshly started server, python -m build…
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.

@@ -439,18 +439,22 @@ All commands run from the repository root, non-interactively, with no virtualenv
 |---|---|
 | install | `uv sync --all-extras` |
 | test | `uv run pytest -q` |
+| test + coverage | `uv run pytest -q --cov=admin_errors --cov-report=term-missing` (≥ 90 % is enforced in CI) |
 | test on PostgreSQL | `DJANGO_DB=postgres ADMIN_ERRORS_TEST_PG_URL=postgres://postgres:postgres@localhost:5432/admin_errors_test uv run pytest -q` |
 | test on PostgreSQL (compose) | `make test-pg` — brings up `demo/docker-compose.yml`'s `postgres:16` service, runs the suite, always tears it down |
 | bring up / down the PG container | `make pg-up` / `make pg-down` |
 | lint | `uv run ruff check . && uv run ruff format --check . && uv run python -m django check --settings=tests.settings && uv run python -m django makemigrations admin_errors --check --dry-run --settings=tests.settings` |
+| benchmark | `uv run python benchmarks/bench_capture.py` (exits non-zero if a budget is missed) |
 | full matrix | `uv run tox` |
+| packaging check | `uv run tox -e package` — builds the wheel, installs it into a clean venv, runs `django-admin check` + `migrate`, then `tests/package_smoke.py` |
 | build | `uv run python -m build && uv run twine check dist/*` |
 | e2e | `make e2e-up && uv run --extra e2e pytest e2e -q && make e2e-down` |
 | demo (manual, blocks on `runserver`) | `make demo` (SQLite) · `make demo-pg` (Postgres via docker compose) |
 
-See `docs/spec.md` for the full implementation specification, `docs/dev/adr/` for the accepted
-design decisions, and `docs/user/` for operator-facing documentation (what an admin using the
-*Errors* section of the site would read, as opposed to a contributor).
+See `docs/dev/architecture.md` for how the pieces fit together, `docs/dev/adr/` for the accepted
+design decisions, `docs/spec.md` for the full implementation specification, and `docs/user/` for
+operator-facing documentation (what an admin using the *Errors* section of the site would read, as
+opposed to a contributor).
 
 ## Try it
 
