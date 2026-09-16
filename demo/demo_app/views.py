@@ -8,11 +8,13 @@ sampling limiters, Celery, async views, and the `Http404` negative case.
 import logging
 import time
 
-from django.http import Http404, HttpResponse, JsonResponse
+from django.conf import settings
+from django.http import Http404, HttpResponse, HttpResponseNotFound, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
+from django.views.decorators.http import require_POST
 
-from admin_errors import api
+from admin_errors import api, capture
 
 logger = logging.getLogger("demo_app")
 
@@ -144,3 +146,20 @@ async def async_boom(request):
 
 def not_found(request):
     raise Http404("not found on purpose")
+
+
+@require_POST
+def reset_rate_limits(request):
+    """Test-only hook: clear the in-process admission/sampling state (`capture.reset_rate_limits`).
+
+    `NEW_ISSUES_PER_MINUTE`/`EVENT_SAMPLE_PER_HOUR` token buckets are process-global and persist
+    for as long as this `runserver` stays up, so a shared fingerprint's budget (`/boom/`'s
+    ZeroDivisionError, `/storm/`'s DemoStormError) does not refill between separate e2e runs
+    against a reused server (`make e2e-up` is idempotent by design). `demo/` is never packaged
+    (CLAUDE.md), so this is not part of the library's surface; `DEBUG` gates it so a misconfigured
+    prod-like deployment of the demo can't have its rate limits wiped by an anonymous POST.
+    """
+    if not settings.DEBUG:
+        return HttpResponseNotFound()
+    capture.reset_rate_limits()
+    return HttpResponse("ok, rate limits reset")

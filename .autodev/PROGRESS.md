@@ -1,14 +1,14 @@
 # Autodev progress — django-admin-errors
 
 - **Status:** running
-- **Current:** phase 9/10 · step `commit`
+- **Current:** phase 10/10 · step `commit`
 - **Spec:** `docs/spec.md` · **Branch:** `autodev/spec-20260915-1213`
 - **Stack:** Python 3.10-3.13, Django 4.2/5.2/6.0/6.1, SQLite + PostgreSQL 13+, zero runtime deps beyond Django, hatchling src-layout wheel, pytest + pytest-django, ruff, tox, pytest-playwright for e2e · **Profile:** `django-htmx`
 - **Test command:** `uv run pytest -q` · **E2E:** `uv run --extra e2e pytest e2e -q`
 - **Usage:** 5h ? (reset 16.09 08:40) · 7d ?
-- **Totals:** 88 sessions · 7.8 h agent time · ≈$145.68 API-equivalent
-- **Clock:** 16.0 h since the run was created · 7.8 h working · 6.1 h paused on the usage limit · 2.1 h not running
-- **Updated:** 2026-09-16 04:15:00
+- **Totals:** 104 sessions · 9.5 h agent time · ≈$171.80 API-equivalent
+- **Clock:** 17.8 h since the run was created · 9.5 h working · 6.1 h paused on the usage limit · 2.2 h not running
+- **Updated:** 2026-09-16 05:58:24
 
 ## Phases
 
@@ -22,8 +22,8 @@
 | 6 | PostgreSQL pass | no | ✅ done | 9623bcf |  |
 | 7 | Demo project | yes | ✅ done | 3a7d483 |  |
 | 8 | Admin UI | yes | ✅ done | 56b4a5c | review round 2 changed the working tree itself (docs/img/issue-detail-dark.png, docs/img/issue-detail-dark.png, docs/img/issue-detail-light.png, docs/img/issue-detail-light.png, docs/img/issue-list-dark.png +3 more); those edits are part of this phase's commit, unreviewed |
-| 9 | Notifications, status transitions and i18n | yes | 🔨 in_progress |  |  |
-| 10 | Documentation, release readiness and final verification | yes | ⏳ pending |  |  |
+| 9 | Notifications, status transitions and i18n | yes | ✅ done | ef71f63 |  |
+| 10 | Documentation, release readiness and final verification | yes | 🔨 in_progress |  |  |
 
 ## Timeline
 
@@ -176,6 +176,32 @@
 - `2026-09-16 04:12:14` **p09-e2e** — pass: exit 0: 19 passed, 1 deselected in 10.54s
 - `2026-09-16 04:12:25` **p09-tests** — pass: exit 0: 342 passed, 8 skipped, 1 warning in 10.16s (after e2e fixes)
 - `2026-09-16 04:15:00` **p09-docs** — done (2m, $0.61): Verified phase 9 docs against the diff. CHANGELOG.md and CLAUDE.md were already accurate (notifications, NOTIFY_BASE_URL, W003, copy-as-text, uk catalogue all correctly described). Fixed two stale spots: README.md's 'Try it' section said the notification email was 'a Phase 9 addition and not yet ob…
+- `2026-09-16 04:15:00` **p09-commit** — done: ef71f63
+- `2026-09-16 04:15:02` **push** — done: korkholeh/django-admin-errors@autodev/spec-20260915-1213 as korkholeh
+- `2026-09-16 04:20:09` **p10-plan** — done (5m, $1.92): Explored the repo (package complete, one migration already, coverage 91 %, no pragma no-cover, package tox env present, README a stub, docs/user missing) and wrote .autodev/phases/10-docs-and-release/PLAN.md with Context, Design, 13 ordered tasks, a verification table mapping every acceptance crite…
+- `2026-09-16 04:32:39` **p10-implement** — handover: context reached 200,194 tokens — checkpointing for a fresh session
+- `2026-09-16 04:33:53` **p10-implement** — partial (13m, $3.95): Phase 10 T1-T10 done and verified: tests/test_docs.py (12 doc/release invariant cases, all green), README.md fully rewritten to the spec §17 outline, docs/user/ (6 pages) added, CHANGELOG.md promoted to a real [0.1.0] section with benchmark numbers and an empty [Unreleased], __version__ bumped to 0…
+- `2026-09-16 04:55:47` **p10-implement** — handover: context reached 200,150 tokens — checkpointing for a fresh session
+- `2026-09-16 04:57:42` **p10-implement** — partial (23m, $4.61): T1-T11 of phase 10 are done. This session finished T11: wrote e2e/test_manual_qa.py (6 cases per e2e/plans/manual-qa.plan.yaml) and got the full e2e suite green (25 passed, 1 deselected) on a freshly-restarted demo server. Fixed two test-precondition bugs (not product bugs) discovered along the way…
+- `2026-09-16 05:03:19` **p10-implement** — done (5m, $0.92): Phase 10 finished. This session did T12 (PostgreSQL pass: full suite 362 passed under DJANGO_DB=postgres; §13 e2e spec re-run unchanged against a DEMO_DB=postgres demo, 25 passed/1 deselected, identical to SQLite; errors_cleanup --dry-run clean; pg-down teardown proven) and T13 (final gate: ruff+fo…
+- `2026-09-16 05:03:30` **p10-tests** — pass: exit 0: 354 passed, 8 skipped, 1 warning in 10.18s
+- `2026-09-16 05:08:01` **p10-review1** — changes_requested (4m, $2.56): Phase 10 is substantively done and the gates are real: I independently re-ran the suite (354 passed / 8 skipped), the coverage gate (exit 0, 91%), `tox -e package` (exit 0, `package_smoke: OK — templates, static files and the uk catalogue all resolve.`), ruff check + format, and confirmed exactly o…
+- `2026-09-16 05:18:04` **p10-review_fix1** — done (10m, $2.2): Applied all round-1 review findings for phase 10. Fixed: - [MAJOR] `test_resolve_then_rehit_shows_regressed_and_emails` renamed to `test_resolve_then_rehit_shows_regressed_badge`, dropped its unobservable email claim (demo's `NOTIFY_THROTTLE_SECONDS=3600` + resolve-doesn't-reset-`notified_at` suppr…
+- `2026-09-16 05:18:14` **p10-tests** — pass: exit 0: 354 passed, 8 skipped, 1 warning in 10.14s
+- `2026-09-16 05:23:34` **p10-review2** — changes_requested (5m, $2.63): Phase 10 is genuinely ship-ready and I re-verified every gate independently rather than trusting QA-RESULTS.md: `pytest -q` 354 passed/8 skipped, coverage 91.03% with `--cov-fail-under=90` exit 0, `tox -e package` exit 0 ending in `package_smoke: OK — templates, static files and the uk catalogue al…
+- `2026-09-16 05:25:35` **p10-review_fix2** — done (2m, $0.44): Fixed all 5 findings from REVIEW-r2.md, none rejected. MAJOR fixed: `test_readme_faq_maps_each_silent_failure_to_an_instrument` (tests/test_docs.py) was splitting on the first literal "FAQ", which landed in the Install section's cross-reference and made the "FAQ section" span everything from Instal…
+- `2026-09-16 05:25:45` **p10-tests** — pass: exit 0: 354 passed, 8 skipped, 1 warning in 10.12s
+- `2026-09-16 05:27:58` **p10-review_audit2** — approve (2m, $0.74): All five REVIEW-r2 findings are fixed in the product by this diff; none was rejected, so no DECISIONS.md argument was owed. The MAJOR (test_readme_faq_maps_each_silent_failure_to_an_instrument slicing on the first literal \"FAQ\") is fixed by anchoring on `^## .*FAQ.*$` and bounding to the next `^#…
+- `2026-09-16 05:29:41` **p10-e2e** — done (1m, $0.43): Phase 10 e2e was already fully built and reviewed by prior sessions (e2e/test_manual_qa.py, 6 §13-script cases, reviewed to approval, run green on both SQLite and PostgreSQL). This step re-verified independently against the already-running orchestrator surface: `uv run --extra e2e pytest e2e -q` → …
+- `2026-09-16 05:30:05` **p10-e2e** — fail: exit 1: 2 failed, 23 passed, 1 deselected in 23.81s
+- `2026-09-16 05:36:36` **p10-e2e_fix1** — partial (6m, $1.39): Root cause: not a product bug in this run's sense but the already-documented p10/T11 residual fragility — the demo runserver (--noreload) had already serviced two full e2e runs before this step (proved via /tmp/admin-errors-e2e-server.log timestamps), draining the process-global EVENT_SAMPLE_PER_HO…
+- `2026-09-16 05:37:00` **p10-e2e** — fail: exit 1: 4 failed, 21 passed, 1 deselected in 23.65s
+- `2026-09-16 05:43:14` **p10-e2e_fix2** — partial (6m, $0.74): Root cause (confirmed, same as prior attempt's diagnosis, re-verified with fresh evidence): all 4 e2e failures trace to one cause, not 4 separate bugs. The demo `runserver 127.0.0.1:8000 --noreload` process (pid 32166, started 05:27:59) has been hit by multiple full e2e runs across sessions, draini…
+- `2026-09-16 05:43:38` **p10-e2e** — fail: exit 1: 1 failed, 24 passed, 1 deselected in 23.88s
+- `2026-09-16 05:54:27` **p10-e2e_fix3** — done (10m, $1.99): Root cause: test_copy_as_text_flips_to_copied hit the shared /boom/ ZeroDivisionError fingerprint, which 8-9 other e2e call sites across 3 files also hit. Once the process-wide EVENT_SAMPLE_PER_HOUR=5 token bucket for that one fingerprint runs dry, later occurrences are legitimately stored count-on…
+- `2026-09-16 05:54:52` **p10-e2e** — fail: exit 1: 3 failed, 22 passed, 1 deselected in 24.82s
+- `2026-09-16 05:55:03` **p10-tests** — pass: exit 0: 357 passed, 8 skipped, 1 warning in 10.19s (after e2e fixes)
+- `2026-09-16 05:58:24` **p10-docs** — done (3m, $1.61): Verified phase 10's doc/release surfaces against current code. Fixed one stale claim in docs/user/getting-started.md: the errors_test walkthrough quoted an exact issue title `AdminErrorsTestError: admin_errors errors_test: ...` that the product never produces (title is the message only, per capture…
 
 ---
 Docs: `ARCHITECTURE.md` · `RISKS.md` · `ROADMAP.md` · `DECISIONS.md` · `phases/*/PLAN.md` · `phases/*/REVIEW-r*.md` · `HANDOFF.md` (written at the end) · project docs in `docs/dev/` and `docs/user/` · raw session logs in `logs/`. Stop gracefully: `touch .autodev/STOP`.

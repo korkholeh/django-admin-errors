@@ -16,4 +16,5 @@ urlpatterns = [
     path("task/", views.task, name="task"),
     path("async-boom/", views.async_boom, name="async_boom"),
     path("404/", views.not_found, name="not_found"),
+    path("test/reset-rate-limits/", views.reset_rate_limits, name="reset_rate_limits"),
 ]

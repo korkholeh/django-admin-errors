@@ -37,6 +37,28 @@ def base_url() -> str:
     return E2E_BASE_URL
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _reset_demo_rate_limits(server_available) -> None:
+    """Clear the demo's process-global admission/sampling buckets once per e2e session.
+
+    `make e2e-up` is idempotent and reuses an already-answering server, so a shared fingerprint's
+    `EVENT_SAMPLE_PER_HOUR`/`NEW_ISSUES_PER_MINUTE` budget (`/boom/`, `/storm/`'s DemoStormError)
+    from a *previous* pytest invocation against that same long-lived process would otherwise still
+    be spent, making `test_storm_is_fast_and_stores_few_events` and
+    `test_copy_as_text_flips_to_copied` fail with zero stored samples even though the feature
+    itself works (documented residual fragility, DECISIONS.md p10/T11). Resetting once at session
+    start makes every run behave like the first one, without touching any of the buckets' own
+    behaviour during the run.
+    """
+    try:
+        urllib.request.urlopen(
+            urllib.request.Request(f"{E2E_BASE_URL}/test/reset-rate-limits/", method="POST"),
+            timeout=2,
+        )
+    except (URLError, OSError):
+        pass
+
+
 def login(page, base_url: str, username: str, password: str) -> None:
     """Log `page` in through the real admin login form and land on the admin index."""
     page.goto(f"{base_url}/admin/login/")

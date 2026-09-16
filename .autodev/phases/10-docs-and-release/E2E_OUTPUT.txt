@@ -1,0 +1,94 @@
+$ uv run --extra e2e pytest e2e -q
+# exit code: 1   # 2026-09-16 05:54:52
+
+......FF.........F.......                                                [100%]
+=================================== FAILURES ===================================
+___________ test_detail_traceback_collapsed_library_frame[chromium] ____________
+
+page = <Page url='http://127.0.0.1:8000/admin/admin_errors/issue/2179/change/'>
+base_url = 'http://127.0.0.1:8000', server_available = None
+
+    def test_detail_traceback_collapsed_library_frame(page, base_url, server_available) -> None:
+        """[qa:admin-ui:detail-traceback-collapsed-library-frame] A library frame is collapsed."""
+        login(page, base_url, "admin", "admin")
+        page.goto(f"{base_url}/boom/999999/")
+        wait_until(
+            page, _list_url(base_url, "boom_n"), lambda p: _row_count(p, base_url, "boom_n") == 1
+        )
+    
+        detail_url = _detail_url(page, base_url, "boom_n")
+        page.goto(detail_url)
+    
+        library_frames = page.locator(".ae-frame--library")
+>       assert library_frames.count() > 0, "expected at least one non-in-app frame in the traceback"
+E       AssertionError: expected at least one non-in-app frame in the traceback
+E       assert 0 > 0
+E        +  where 0 = count()
+E        +    where count = <Locator frame=<Frame name= url='http://127.0.0.1:8000/admin/admin_errors/issue/2179/change/'> selector='.ae-frame--library'>.count
+
+e2e/test_admin_ui.py:119: AssertionError
+_________________________ test_locals_toggle[chromium] _________________________
+
+page = <Page url='http://127.0.0.1:8000/admin/admin_errors/issue/2179/change/'>
+base_url = 'http://127.0.0.1:8000', server_available = None
+
+    def test_locals_toggle(page, base_url, server_available) -> None:
+        """[qa:admin-ui:locals-toggle] The in-app frame's Locals details toggle reveals `n`."""
+        login(page, base_url, "admin", "admin")
+        page.goto(f"{base_url}/boom/1234567/")
+        wait_until(
+            page, _list_url(base_url, "boom_n"), lambda p: _row_count(p, base_url, "boom_n") == 1
+        )
+    
+        detail_url = _detail_url(page, base_url, "boom_n")
+        page.goto(detail_url)
+    
+        in_app_frame = page.locator(".ae-frame--in-app").first
+        details = in_app_frame.locator(".ae-frame-locals")
+>       assert details.count() == 1, "expected the in-app boom_n frame to carry captured locals"
+E       AssertionError: expected the in-app boom_n frame to carry captured locals
+E       assert 0 == 1
+E        +  where 0 = count()
+E        +    where count = <Locator frame=<Frame name= url='http://127.0.0.1:8000/admin/admin_errors/issue/2179/change/'> selector='.ae-frame--in-app >> nth=0 >> .ae-frame-locals'>.count
+
+e2e/test_admin_ui.py:144: AssertionError
+______________ test_storm_is_fast_and_stores_few_events[chromium] ______________
+
+page = <Page url='http://127.0.0.1:8000/admin/admin_errors/issue/2186/change/'>
+base_url = 'http://127.0.0.1:8000', server_available = None
+
+    def test_storm_is_fast_and_stores_few_events(page, base_url, server_available) -> None:
+        """[qa:manual-qa:storm-is-fast-and-stores-few-events] /storm/?n=5000 is fast and stores at
+        most EVENT_SAMPLE_PER_HOUR occurrences."""
+        login(page, base_url, "admin", "admin")
+        query = "DemoStormError"
+        _delete_existing_issue(page, base_url, query)
+    
+        start = time.monotonic()
+        response = page.request.get(f"{base_url}/storm/?n=5000")
+        wall_clock_seconds = time.monotonic() - start
+        assert response.ok, f"storm request failed: {response.status}"
+        body = response.json()
+        assert body["elapsed_seconds"] < 1.0, f"view reported {body['elapsed_seconds']}s"
+        assert wall_clock_seconds < 1.0, f"client measured {wall_clock_seconds}s"
+    
+        wait_until(page, _list_url(base_url, query), lambda p: _row_count(p, base_url, query) >= 1)
+        # A substantial fraction of 5000, not all of it: the writer's queue (QUEUE_MAXSIZE=1000,
+        # default) drops the newest item on overflow when a burst outruns the consumer, so not every
+        # occurrence survives — verified locally at a stable ~1200/5000 across repeated runs. 500 is a
+        # floor well below that observed value (room for a slower CI machine) and far above zero, so a
+        # regression that silently drops the whole storm (not just the excess) still fails loudly.
+        assert _issue_count(page, base_url, query) >= 500
+        page.goto(_detail_url(page, base_url, query))
+        stored_rows = page.locator("table.ae-events-table tbody tr td a")
+>       assert 1 <= stored_rows.count() <= EVENT_SAMPLE_PER_HOUR
+E       AssertionError: assert 1 <= 0
+E        +  where 0 = count()
+E        +    where count = <Locator frame=<Frame name= url='http://127.0.0.1:8000/admin/admin_errors/issue/2186/change/'> selector='table.ae-events-table tbody tr td a'>.count
+
+e2e/test_manual_qa.py:178: AssertionError
+=========================== short test summary info ============================
+FAILED e2e/test_admin_ui.py::test_detail_traceback_collapsed_library_frame[chromium]
+FAILED e2e/test_admin_ui.py::test_locals_toggle[chromium] - AssertionError: e...
+FAILED e2e/test_manual_qa.py::test_storm_is_fast_and_stores_few_events[chromium]
+3 failed, 22 passed, 1 deselected in 24.82s

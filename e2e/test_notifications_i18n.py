@@ -135,17 +135,33 @@ def test_created_email_in_server_log_and_regressed_badge(page, base_url, server_
 
 
 def test_copy_as_text_flips_to_copied(page, base_url, server_available) -> None:
-    """[qa:notifications-i18n:copy-as-text-flips-to-copied] Copy as text flips its label."""
+    """[qa:notifications-i18n:copy-as-text-flips-to-copied] Copy as text flips its label.
+
+    Hits `/async-boom/` (culprit `demo_app.views.async_boom`), not the shared `/boom/`
+    ZeroDivisionError fingerprint: `/boom/` is also hit by `test_admin_ui.py`,
+    `test_demo_surface.py` and `test_manual_qa.py`, and each hit that lands while the
+    process-wide `EVENT_SAMPLE_PER_HOUR` token bucket for that fingerprint is empty is stored as a
+    count-only occurrence with no payload (spec section 7.2 step 5, by design). A long-lived
+    `--noreload` demo server (`make e2e-up` is idempotent and reuses it run after run) accumulates
+    enough prior `/boom/` hits that the shared bucket is routinely dry by the time this test's own
+    hit lands, leaving `Issue.last_event` `None` and `#ae-traceback-text` absent even though the
+    feature itself works — not a product bug (p10/T12, DECISIONS.md). `/async-boom/` is not hit by
+    any other e2e spec, so its own bucket is always fresh: the first hit to a fingerprint always
+    gets a token (`capture._TokenBucket.take()` seeds a new bucket at full capacity), making the
+    traceback deterministically present regardless of run order or how long the server has lived.
+    """
     page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base_url)
     login(page, base_url, "admin", "admin")
+    query = "async_boom"
+    _delete_existing_issue(page, base_url, query)
 
-    page.goto(f"{base_url}/boom/")
+    page.goto(f"{base_url}/async-boom/")
     wait_until(
         page,
-        _list_url(base_url, "ZeroDivisionError"),
-        lambda p: _row_count(p, base_url, "ZeroDivisionError") >= 1,
+        _list_url(base_url, query),
+        lambda p: _row_count(p, base_url, query) >= 1,
     )
-    detail_url = _detail_url(page, base_url, "ZeroDivisionError")
+    detail_url = _detail_url(page, base_url, query)
     page.goto(detail_url)
 
     pre = page.locator("#ae-traceback-text")

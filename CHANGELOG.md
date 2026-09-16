@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] — 2026-09-16
+
+First release. Sentry-style error tracking for the Django admin: unhandled exceptions and
+error-level log records are captured, fingerprinted into issues, deduplicated and stored in the
+host's own database, with a changelist (summary cards, sparklines) and a detail page (traceback,
+request context, occurrence history, Resolve/Ignore/Reopen) — no external service required.
+
 ### Added
 
 - Project scaffold: `pyproject.toml` (hatchling, `src/` layout, zero runtime deps beyond Django),
@@ -59,11 +68,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `transaction.on_commit`, gated on `signal.has_listeners()` so the existing `assertNumQueries`
   bounds are unaffected while nothing is connected.
 - `benchmarks/bench_capture.py`: a standalone timing harness (not collected by pytest) with a
-  budget-gated exit code. Measured on this machine (2026-09-15, Python 3.13.3, SQLite,
-  `TRANSPORT="thread"` with a no-op sink): capture with a 30-frame traceback and no locals,
-  p50 ≈ 1.1 ms (budget ≤ 2 ms); with locals, p50 ≈ 1.3 ms (budget ≤ 10 ms); count-only (sampling
-  budget exhausted), p50 ≈ 0.01 ms (budget ≤ 0.3 ms); `storage.store_batch` throughput, 10 000
-  occurrences across 50 aggregates in ≈ 0.08 s (~120 000 occurrences/s).
+  budget-gated exit code. Final release run (2026-09-16, Apple Silicon Mac, Python 3.13.3, SQLite
+  3.49.1, `TRANSPORT="thread"` with a no-op sink; see `.autodev/phases/10-docs-and-release/BENCH.md`
+  for the full table and machine details): capture, no locals — p50 1.309 ms / p95 1.392 ms (budget
+  2.0 ms); capture, with locals — p50 1.588 ms / p95 1.714 ms (budget 10.0 ms); capture, count-only —
+  p50 0.013 ms / p95 0.014 ms (budget 0.3 ms); `storage.store_batch` throughput, 10,000 occurrences
+  across 50 aggregates in 0.058 s (≈ 173,600 occurrences/s).
 - `admin_errors.retention.run_cleanup` (spec section 9.3): the six bounded-storage rules (stale
   events, stale daily counts, resolved/ignored/open issue TTLs, `MAX_ISSUES` eviction with
   hysteresis, oldest-`last_seen`-first across ignored → resolved → open) plus an optional SQLite
@@ -209,3 +219,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   clicking "Resolve" actually submitted to the change-form URL instead of the status-transition one
   (only reachable from a real browser, not from `Client()`-based tests). Fixed with `formaction`/
   `formmethod` buttons instead of nested forms.
+
+Documentation and release readiness (phase 10): README rewritten to the full spec section 17
+outline (screenshots, install, an ASCII pipeline diagram, the complete settings reference,
+permissions/groups, retention/Celery-beat/dedicated-alias/SQLite guidance, notifications and the
+`mail_admins` overlap, Celery/ASGI/gunicorn notes, the storage bound with real benchmark numbers, an
+FAQ mapping every silent-capture-failure mode to the command or check that diagnoses it, non-goals);
+new task-oriented `docs/user/` (getting started, triage, retention, notifications,
+troubleshooting); new `tests/test_docs.py` pinning the README/CHANGELOG/packaging claims against the
+actual code (settings table completeness and defaults, screenshot coverage, dependency list,
+exactly-one-migration, no `# pragma: no cover` on capture/storage paths); new
+`tests/package_smoke.py` proving the built wheel's templates, static files and `uk` locale actually
+resolve from a clean virtualenv, run as the last step of `tox -e package`.

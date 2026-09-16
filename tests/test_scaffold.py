@@ -11,7 +11,7 @@ from tests.settings import database_from_url
 
 
 def test_version() -> None:
-    assert admin_errors.__version__ == "0.1.0.dev0"
+    assert admin_errors.__version__ == "0.1.0"
 
 
 def test_app_config() -> None:
@@ -32,7 +32,7 @@ def test_import_has_no_side_effects(repo_root) -> None:
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "0.1.0.dev0"
+    assert result.stdout.strip() == admin_errors.__version__
 
 
 def test_minimal_host_installed_apps() -> None:

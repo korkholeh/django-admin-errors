@@ -1236,3 +1236,327 @@ so `grep -n '^## '` is the index and a session can read only the part it needs.
   and CLAUDE.md's "create only the pages this project has something true to say in" would still leave
   most of them empty).
 
+
+## p10-plan
+
+
+- [p10/plan] The "migration squash" deliverable is satisfied by verification, not by rewriting:
+  `src/admin_errors/migrations/` already contains exactly `0001_initial.py` (`ls` confirms one
+  numbered file) because the lint gate has run `makemigrations admin_errors --check --dry-run` every
+  phase. The plan pins the invariant with `tests/test_docs.py::test_exactly_one_migration_ships` and
+  re-runs the check — why: squashing a single migration would replace a reviewed file with an
+  equivalent one and re-open risk #19 for no benefit — alternatives: run `squashmigrations 0001 0001`
+  anyway (produces a renamed no-op and a `replaces` entry nobody needs), delete and regenerate
+  `0001_initial.py` (churns a file other databases may already have applied).
+- [p10/plan] The FAQ lives only in `README.md` (spec §17 item 11 requires it there);
+  `docs/user/troubleshooting.md` links to it instead of restating it — why: two copies of a
+  failure→instrument mapping drift, and a doc that contradicts the code is worse than a missing one
+  (CLAUDE.md) — alternatives: FAQ only in `docs/user/faq.md` (violates spec §17), full duplication.
+- [p10/plan] `docs/user/` ships six pages: `README.md` (index), `getting-started.md`,
+  `triage-issues.md`, `retention.md`, `notifications.md`, `troubleshooting.md` — why: the roadmap
+  names triage/retention/notifications as the operator workflows, the guide's page list adds an index
+  and a getting-started, and it says to create only pages with something true to say — alternatives:
+  the guide's full page set incl. `faq.md` and a per-feature page each (most would be empty), a
+  single `docs/user/README.md` (buries five distinct tasks in one scroll).
+- [p10/plan] The spec §13 manual QA script is authored as a durable e2e spec
+  (`e2e/test_manual_qa.py` + `e2e/plans/manual-qa.plan.yaml`, six cases) whose run output is recorded
+  in `.autodev/phases/10-docs-and-release/QA-RESULTS.md`, rather than executed as a one-off prose
+  checklist — why: risk #1 is the run's largest, and a re-runnable spec closes it for every future
+  change instead of only for tonight; phases 8 and 9 both found real product bugs exactly this way —
+  alternatives: prose-only manual pass (unrepeatable, and rule 11 would still demand pasted output),
+  extend `tests/test_demo.py` with Django test-client versions (would not exercise the live writer
+  thread, the console email backend, or dark mode).
+- [p10/plan] Each e2e QA case enforces its own precondition (deleting any pre-existing issue for the
+  target culprit through the admin's own `delete_selected` action) instead of assuming a fresh
+  database — why: `make e2e-up` deliberately reuses an already-answering server without reseeding, and
+  p09-e2e_fix1 proved that an assumed "never hit before" precondition breaks the moment the demo
+  server outlives one attempt — alternatives: force a reseed per run (slow, and fights `e2e-up`'s
+  idempotence), touch the demo DB directly (bypasses the product surface).
+- [p10/plan] `tox -e package` gets a new last command running `tests/package_smoke.py` with the clean
+  venv's interpreter: it asserts the installed wheel's admin templates resolve via
+  `get_template`, the static CSS/JS are found by the staticfiles finders, and `locale/uk/LC_MESSAGES/
+  django.mo` exists and yields a translated string after `translation.activate("uk")` — why: the
+  acceptance criterion asks the package env to *prove* templates, static files and the `uk` catalogue
+  are in the wheel, and today's `check` + `migrate` would pass even if all three were missing (risk
+  #17) — alternatives: unzip the wheel and grep the file list (proves presence, not that Django can
+  find them), trust the hatch `artifacts` globs (that is exactly the assumption #17 is about).
+  The file is named without a `test_` prefix so pytest (`testpaths = ["tests"]`) does not collect it.
+- [p10/plan] The README settings table is pinned by a test that compares the table's key column with
+  `conf.DEFAULTS` in **both** directions and also compares each documented default with the real one
+  — why: a one-directional check would let a documented-but-nonexistent key survive, and a stale
+  default is the most likely and most misleading doc bug — alternatives: key-set check only, generate
+  the table from `DEFAULTS` at build time (the *Meaning* column is prose that cannot be generated).
+- [p10/plan] Benchmark numbers in `CHANGELOG.md` come from a real
+  `uv run python benchmarks/bench_capture.py` run on this machine, recorded verbatim in
+  `.autodev/phases/10-docs-and-release/BENCH.md` together with `uname -a`, the Python and SQLite
+  versions, and the exit code; `--no-gate` is never used — why: spec §18 requires benchmark numbers in
+  the 0.1.0 section and rule 9 forbids weakening a check to make it pass — alternatives: quote the
+  `BUDGETS` targets as if they were measurements (false), omit the numbers (fails the DoD).
+- [p10/plan] `--cov-fail-under=90` stays a separate, explicitly-run command (and the CI job it already
+  has), not an addition to `addopts` — why: the roadmap's own assumption is that a coverage dip must
+  not masquerade as a functional failure in the per-phase `uv run pytest -q` gate; baseline measured
+  this session is 91 % — alternatives: add it to `addopts` (changes the gate's meaning for every
+  future step).
+- [p10/plan] `pyproject.toml` keeps `Development Status :: 3 - Alpha` at 0.1.0 — why: 0.1.0 is a first
+  release of a young library and the classifier is the honest one; nothing in the spec asks for a
+  bump — alternatives: `4 - Beta` (a claim the run has not earned).
+
+## p10-implement
+
+- [p10/T1] `tests/test_docs.py` pins README/CHANGELOG/packaging claims (settings-table completeness
+  and default values, screenshot coverage, spec-17 section headings, FAQ instrument mapping,
+  released CHANGELOG section, version match, single runtime dependency, one migration, no
+  `pragma: no cover` on capture/storage, `docs/user/` link resolution) — why: catches doc drift as a
+  test failure instead of a human re-read — alternatives: a manual QA checklist only (no CI signal).
+- [p10/T1] Fixed a pre-existing stale hardcoded `"0.1.0.dev0"` in
+  `tests/test_scaffold.py::test_import_has_no_side_effects` by comparing the subprocess's printed
+  version against `admin_errors.__version__` instead of a literal — why: a literal would have gone
+  stale again at the next version bump and silently duplicated `test_docs.py`'s version check with a
+  weaker guarantee — alternatives: leave both hardcoded to `"0.1.0"` (drifts again next release).
+- [p10/T7] `docs/user/troubleshooting.md` links to the top-level README's FAQ rather than
+  duplicating it, per the plan's "two copies would drift" design note; `test_user_docs_index_links_
+  resolve` was written to resolve `../../README.md`-style relative links against the linking file's
+  own directory rather than requiring the target to live inside `docs/user/` — why: the original
+  same-directory-only check was a test bug, not a real constraint — alternatives: keep all links
+  same-directory (would have forced duplicating the FAQ, the thing the design explicitly avoids).
+- [p10/T11] Session 1 stopped mid-T11 with context exhausted: `e2e/plans/manual-qa.plan.yaml`
+  written (6 cases + deferred), `e2e/test_manual_qa.py` not yet written, `make e2e-up` never run —
+  why: ran out of context budget after finishing T1-T10 (tests/test_docs.py, README rewrite,
+  docs/user/, CHANGELOG/version release, tests/package_smoke.py + tox -e package proof), and a
+  half-written e2e spec plus an untested `make e2e-up` is worse to hand off than a clean stop before
+  starting it — alternatives: rush T11-T13 with shrinking context (risk of an unreviewed e2e spec or
+  a stray demo server left running).
+- [p10/T11] `e2e/test_manual_qa.py` written (all 6 cases) and made green: `_delete_existing_issue`
+  now retries the bulk-delete and waits past one `FLUSH_INTERVAL_SECONDS` before trusting "cleared"
+  — why: a delayed writer-thread flush from an earlier test's hit on the same shared `/boom/`
+  fingerprint could land right after the delete and silently reappear, observed as
+  `three-boom-hits` counting 4 instead of 3 — alternatives: a fixed `sleep` before every hit (slower,
+  same fragility, no stability proof), assume the DB is authoritative right after delete (what broke).
+- [p10/T11] `test_resolve_then_rehit_shows_regressed_and_emails` reuses the `/boom/` issue
+  `test_three_boom_hits_make_one_issue_with_count_three` already (re)created in the same file,
+  instead of deleting and recreating it a second time — why: a second recreation, once /boom/'s
+  process-wide `EVENT_SAMPLE_PER_HOUR` (demo: 5) budget was already spent by earlier hits from this
+  file plus `test_admin_ui.py`/`test_demo_surface.py`, left the recreated issue with no stored
+  `last_event`, which broke `test_notifications_i18n.py::test_copy_as_text_flips_to_copied`
+  downstream (`#ae-traceback-text` needs a payload) — proven by reproducing the failure standalone
+  (`uv run --extra e2e pytest e2e/test_notifications_i18n.py::test_copy_as_text_flips_to_copied -q`
+  failed only when preceded by the extra recreation; passed alone on a fresh server) — alternatives:
+  a dedicated `/keyerror/<unique-key>/` route (tried first, rejected: proven that distinct keys on
+  that route still collapse into one shared fingerprint, since its title/message comes from the
+  `django.request` log record's path text, not the key — no real isolation, just a different flake);
+  bump the demo's `EVENT_SAMPLE_PER_HOUR` (would blunt the storm case's own point).
+- [p10/T11] `errors_cleanup --dry-run`'s "unchanged row counts" assertion compares only the
+  `issues:`/`events:`/`daily_counts:`/`status[...]:` lines of `errors_stats`'s output before/after,
+  not the full stdout — why: "newest issue last_seen" legitimately advances between the two
+  subprocess calls when the demo's writer thread flushes an unrelated, already-in-flight occurrence
+  from an earlier browser-driven test; a full-text diff flagged that as a false "dry run changed
+  something" — alternatives: assert full-stdout equality (flaky, proven to fail this way), sleep
+  before the "after" snapshot to let the writer settle (adds latency, doesn't remove the race, just
+  narrows it).
+- [p10/T11] Known, accepted, documented residual fragility: running the full `e2e/` suite twice in a
+  row against the same **not-restarted** demo server can still exhaust `/boom/`'s shared
+  `EVENT_SAMPLE_PER_HOUR` budget across the two runs combined and reproduce the Copy-as-text
+  failure — why: T13's gate and CI both do a single `make e2e-up` (fresh) → `pytest e2e` →
+  `make e2e-down` cycle, proven green (25 passed, 1 deselected) on a fresh server; only iterative
+  manual re-runs against an already-used server hit this, and chasing it further would mean either
+  bumping the demo's sampling budget (blunts the storm case) or adding product-side test-only reset
+  hooks (out of phase-10 scope, no product changes planned) — alternatives considered and rejected
+  above; left as a documented limitation rather than an unfounded "flaky" label per rule 11.
+- [p10/T12] PostgreSQL pass for the §13 QA script reused the T11 e2e spec unchanged against a
+  `DEMO_DB=postgres` demo server, started by hand (`migrate` → `demo_seed --reset` → backgrounded
+  `runserver`, mirroring `make e2e-up`'s own steps) since the Makefile's `demo-pg` target runs the
+  server in the foreground — why: no new Makefile target is needed for a one-off session; `e2e-up`
+  itself only ever targets the SQLite demo — alternatives: add a `demo-pg`-backed `e2e-up-pg` target
+  (more Makefile surface for a step this phase runs once, out of scope per the plan's "no product
+  code changes"). Full suite green under `DJANGO_DB=postgres`: 362 passed (354 SQLite + 8
+  `postgres_only`-guarded cases that only run on this backend). e2e: 25 passed, 1 deselected,
+  identical to the SQLite run. `errors_cleanup --dry-run` printed a report and changed nothing.
+  Teardown confirmed clean (`lsof` empty, `docker compose ps` empty) before `make pg-down`.
+
+
+## p10-review_fix1
+
+- [p10-review_fix1/major1] Renamed `e2e/test_manual_qa.py::test_resolve_then_rehit_shows_regressed_and_emails`
+  to `test_resolve_then_rehit_shows_regressed_badge` (case id likewise renamed in
+  `e2e/plans/manual-qa.plan.yaml`), dropped its email claim, and pointed PLAN.md's verification
+  row and the plan.yaml oracle at `tests/test_notifications.py::test_regression_sends_one_email`
+  for the email clause instead — why: review r1 major — the case only ever asserted
+  `.ae-badge--regressed`, never a `Regression:` log line, and structurally cannot: it reuses the
+  `/boom/` issue `test_three_boom_hits_make_one_issue_with_count_three` already created in the
+  same file/run (deliberately, to avoid burning a second slice of the shared
+  `EVENT_SAMPLE_PER_HOUR` budget, per p10/T11), so the throttle window opened by that issue's own
+  "New issue:" notification is still open when this case resolves and re-hits it, and resolving
+  does not reset `notified_at` by design (p09-review_fix2/minor-rejected2) — the regression email
+  is suppressed by design under the demo's shipped `NOTIFY_THROTTLE_SECONDS=3600`, not missing due
+  to a bug. Spec §13's "and a console email" clause is therefore unobservable end-to-end against
+  the shipped demo config without either re-burning the shared sampling budget (rejected once
+  already for breaking `test_notifications_i18n.py::test_copy_as_text_flips_to_copied` downstream)
+  or lowering the demo's throttle just for this case (would make the demo's shipped defaults
+  diverge from what a real host runs, rejected for the same reason in p09-review_fix2/blocker1) —
+  alternatives: drive a culprit whose creation notification predates the throttle window (no such
+  fixture exists without adding one, out of this fix pass's "small and safe" scope), leave the
+  claim uncorrected (the reviewer's dispreferred option).
+- [p10-review_fix1/minor1] `test_storm_is_fast_and_stores_few_events` now asserts
+  `1 <= stored_rows.count() <= EVENT_SAMPLE_PER_HOUR` (was: no lower bound) plus the issue's own
+  Count column `>= 500` after the storm, and `_issue_count()` now parses the admin's compact
+  number format (`ae_compact_number`: `"1.2k"` -> 1200) instead of `int()`-ing it directly — why:
+  review r1 minor — the old assertion passed vacuously if every payload were sampled away or
+  silently dropped (count 0), which spec §13 asks for "count +5000, ≤5 stored events", not "≤5
+  stored events, possibly zero". Verified live against a fresh demo server (`make e2e-up` →
+  repeated `GET /storm/?n=5000` via `manage.py shell`): the writer's queue (`QUEUE_MAXSIZE=1000`
+  default) drops the newest item on overflow, so the fingerprint's stored count lands at a stable
+  ~1200/5000 across three repeated runs, not close to 5000 — the first attempt at this fix used a
+  4000 floor from the review's own wording ("substantial fraction of 5000") and failed against the
+  real demo, so 500 was chosen instead: well below the verified ~1200 (headroom for a slower CI
+  machine) and far above zero, so a regression that drops the *whole* storm still fails loudly.
+  `int()` on the raw cell text also broke on the discovery run (`ValueError: invalid literal for
+  int() with base 10: '1.2k'`) since `admin.py::count_display` renders counts through
+  `ae_compact_number`, not a plain integer, once past 999 — `_parse_compact_count()` added to undo
+  that formatting (`"k"`/`"m"` suffixes) — alternatives: assert exact `== 5000` (flaky, ignores
+  the documented overflow-drop behaviour); leave `_issue_count()` as a plain `int()` and query the
+  DB directly instead of the rendered cell (larger change, and the whole point of an e2e case is
+  to read what the admin actually renders).
+- [p10-review_fix1/minor2] `e2e/plans/manual-qa.plan.yaml`'s `boom-1-and-boom-2-group-into-one-issue`
+  and `storm-is-fast-and-stores-few-events` case `steps` now name the actual search queries the
+  test uses (`boom_n`, `DemoStormError`) instead of `'bad value'` and a delete "for
+  demo_app.views.storm" — why: review r1 minor — the plan is the traceability document for these
+  cases, and a reader reproducing the steps by hand with the old wording gets a different
+  (failing) result, per the test's own comment (title is built from the normalized message, so
+  the raw "bad value {n}" text never matches).
+- [p10-review_fix1/minor3] `tests/test_docs.py`'s `test_readme_settings_table_defaults_match_conf`
+  now compares the whole Default cell for exact equality against `_normalize_default(expected)`
+  (was: `in` substring check) — why: review r1 minor — the substring check let a documented `500`
+  satisfy an expected `50` and a documented `36000` satisfy `3600`, exactly the stale-default drift
+  the test exists to catch; confirmed every README Default cell already holds nothing but the
+  backticked value (spot-checked all 39 rows), so exact equality needs no format change to the
+  README itself. Also bounded `test_readme_has_the_spec_17_sections`'s ASCII-diagram slice to the
+  "How it works" section only (next `## ` heading, not end-of-file) and added a `"writer thread"`
+  content check inside it — why: review r1 minor — the old unbounded slice could never fail since
+  every later section (Install, Celery beat, FAQ) also contains fences.
+- [p10-review_fix1/minor4] Added `docs/user/` to CLAUDE.md's Layout block and a line noting
+  `tox -e package` ends by running `tests/package_smoke.py` with the clean venv's interpreter —
+  why: review r1 minor — this phase added both and CLAUDE.md, the single doc a new contributor
+  reads first, mentioned neither.
+
+
+
+
+
+## p10-e2e
+
+- [p10-e2e] No new e2e work needed this pass — re-ran the existing suite against the
+  orchestrator-started demo server (`uv run --extra e2e pytest e2e -q` → 25 passed, 1 deselected)
+  and the unit gate (`uv run pytest -q` → 354 passed, 8 skipped) and found both already green with
+  no product bugs — why: prior sessions (p10-implement T11/T12/T13, p10-review_audit2) already
+  authored the full §13 manual-QA e2e spec, ran it on SQLite and PostgreSQL, and closed two rounds
+  of review; this step's job was independent re-verification, not new authorship — alternatives:
+  add speculative extra cases anyway (rejected — the plan's `deferred_not_authored` list already
+  covers what was deliberately left out, and the task says not to touch the unit suite or invent
+  work). Left `make e2e-down` un-run per this step's own instruction that the surfaces are
+  orchestrator-owned and already running.
+
+
+## p10-e2e_fix1
+
+- [p10-e2e_fix1/root-cause] Root-caused the two `uv run --extra e2e pytest e2e -q` failures
+  (`test_storm_is_fast_and_stores_few_events`, `test_notifications_i18n.py::test_copy_as_text_flips_to_copied`)
+  to the already-documented p10/T11 residual fragility, not a new product bug: `/tmp/admin-errors-e2e-server.log`
+  showed `GET /storm/?n=5000` logged twice (02:28:45 and 02:29:59) against the same `--noreload`
+  demo `runserver` pid (started 05:27:59, 6 minutes old at time of investigation) — i.e. the orchestrator
+  had already run the full e2e suite twice against this one long-lived process before this fix step
+  started, so `DemoStormError`'s and `/boom/`'s process-global `EVENT_SAMPLE_PER_HOUR` token buckets
+  (`capture._sample_buckets`, refills over 3600s) were already spent by the first run when the second
+  (failing) run's `/storm/`/`/boom/` requests tried to sample — confirmed by re-running
+  `uv run --extra e2e pytest e2e -q` unchanged, which failed *worse* (4 failing, not 2) as the bucket
+  drained further — why: matches DECISIONS.md p10/T11's own "known, accepted, documented residual
+  fragility: running the full e2e/ suite twice in a row against the same not-restarted demo server
+  can still exhaust /boom/'s shared EVENT_SAMPLE_PER_HOUR budget" entry exactly, which that session
+  left unresolved as out-of-scope — alternatives considered: blame the environment without proof
+  (rejected per rule 11; the log-timestamp evidence above is the proof), weaken the assertions to
+  tolerate 0 stored samples (rejected — that is exactly the "storage bound in practice" the storm
+  case exists to prove, spec §9.4).
+- [p10-e2e_fix1/fix] Added a demo-only, `DEBUG`-gated `POST /test/reset-rate-limits/` view
+  (`demo/demo_app/views.py::reset_rate_limits`, wired in `demo/demo_app/urls.py`) that calls the
+  already-public `admin_errors.capture.reset_rate_limits()`, plus a session-scoped autouse fixture
+  in `e2e/conftest.py` (`_reset_demo_rate_limits`) that POSTs it once before any e2e test runs —
+  why: this turns the previously-rejected "product-side test-only reset hook" (p10/T11 explicitly
+  called it out-of-scope at the time) into the actual fix now that the fragility it predicted is
+  blocking the gate; it makes every e2e session behave like a fresh server regardless of how many
+  times the same long-lived `--noreload` process has already been hit, without loosening any
+  assertion or touching `EVENT_SAMPLE_PER_HOUR`'s shipped value (would blunt the storm case, rejected
+  for the same reason p10/T11 rejected it) — `demo/` is never packaged (CLAUDE.md Layout), so this
+  adds nothing to the library's surface. Added unit coverage in `tests/test_demo.py`
+  (`test_reset_rate_limits_clears_the_sample_bucket`, `test_reset_rate_limits_rejects_get`,
+  `test_reset_rate_limits_404s_outside_debug`) that exhausts the bucket via two `/storm/` hits,
+  proves the endpoint restores it, and pins the `DEBUG`-gate/`require_POST` guards — `uv run pytest -q`
+  357 passed, 8 skipped; lint clean. Alternatives: bump the demo's `EVENT_SAMPLE_PER_HOUR` (blunts the
+  storm case, rejected twice already in p10/T11), leave it undocumented/unfixed a third time (the
+  fragility would keep resurfacing on every reused-server rerun, including the orchestrator's own).
+- [p10-e2e_fix1/blocked-verification] Could not observe a green `uv run --extra e2e pytest e2e -q`
+  in this step: `demo/demo_app/views.py`/`urls.py` changes cannot take effect on the already-running
+  `runserver 127.0.0.1:8000 --noreload` process (`.autodev/e2e-server.pid` → pid 32166, started
+  05:27:59, `--noreload` by design per `architect/commands` decision above — "so no step can leave a
+  listening process behind" — meaning it also never hot-reloads); proven by
+  `curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:8000/test/reset-rate-limits/`
+  → `404` after the edit. This step's own instructions say "Do not start or stop the surfaces," so
+  a `make e2e-down && make e2e-up` cycle (which prior sessions proved gives 25 passed, 1 deselected
+  on a genuinely fresh server) was not run. The fix is code-complete, unit-tested and lint-clean;
+  the remaining task is exactly that fresh up/down cycle, which is outside this step's permitted
+  actions — alternatives: restart the surfaces anyway (would violate this step's explicit
+  instruction), leave the reset hook unimplemented and report the same fragility a third time with
+  no fix (rejected — the whole point of this step is to fix it, not just re-describe it).
+
+
+
+## p10-e2e_fix3
+- [10-docs-and-release/e2e_fix3] `test_copy_as_text_flips_to_copied` now hits `/async-boom/`
+  (culprit `demo_app.views.async_boom`, unused by any other e2e spec) instead of the shared
+  `/boom/` ZeroDivisionError fingerprint — why: root-caused via direct DB query
+  (`Issue.objects.get(pk=2172)`: `count=5`, `last_event=None`, `events.count()=0`) plus a read of
+  `storage._update_counters`/`capture._should_sample`: `/boom/`'s fingerprint is hit by 8-9
+  call sites across `test_admin_ui.py`, `test_demo_surface.py` and `test_manual_qa.py` before this
+  test ever runs, and each hit that lands once the process-wide `EVENT_SAMPLE_PER_HOUR=5` token
+  bucket for that one fingerprint is dry is stored as a count-only occurrence with no payload —
+  spec section 7.2 step 5's documented, intended behavior ("an issue can be created even from a
+  count-only item"), not a bug in `traceback.html`'s `{% if ae_traceback_text %}` gate. This holds
+  even with a perfectly working per-session reset: totalling the real hits to `/boom/` across the
+  suite (3+1+3+1+1=9) already exceeds capacity 5 within one fresh session, so the existing
+  session-scoped `_reset_demo_rate_limits` fixture (`e2e/conftest.py`) could never have made this
+  deterministic — confirmed separately that its own `POST /test/reset-rate-limits/` 404s on the
+  currently-running `--noreload` demo process (`curl -i -X POST .../test/reset-rate-limits/` →
+  404, the route absent from that process's own Django "tried these URL patterns" listing) because
+  `demo/demo_app/urls.py`/`views.py` were edited (mtime 05:32) after the long-lived server process
+  started (05:27:59); that failure is silently swallowed by `except (URLError, OSError): pass` in
+  the fixture, an existing but secondary contributing fragility, not the primary cause. Fixed at
+  the test level per this step's own precedent in the same file (`test_created_...regressed_badge`
+  already moved off a shared `/keyerror/<key>/` fingerprint onto exclusive `/logged/` for the same
+  reason, r2 blocker) — a brand-new fingerprint's first `_TokenBucket.take()` always succeeds
+  (bucket seeds at full capacity on first use), so `/async-boom/` deterministically carries a
+  stored `last_event` regardless of run order, session history or server age. Verified:
+  `uv run --extra e2e pytest e2e -q` → 25 passed, 1 deselected; `uv run pytest -q` → 357 passed, 8
+  skipped (unrelated, DJANGO_DB=postgres-only). — alternatives: reuse `/logged/` (would couple this
+  test's state to `test_created_email_in_server_log_and_regressed_badge`'s own resolve/regress flow
+  in the same file, order-dependent); raise `EVENT_SAMPLE_PER_HOUR` in `demo/demo_project/settings.py`
+  (masks the same exhaustion for any future call site added to `/boom/`, and would not even take
+  effect on the current stale `--noreload` process); fix the `conftest.py` reset endpoint/exemption
+  (does not address the in-session 9-hits-vs-capacity-5 math, so `/boom/` would still flake later);
+  none chosen because the dedicated-fingerprint fix removes the shared-budget dependency entirely
+  rather than shrinking it.
+
+
+## p10-docs
+
+- [p10/docs-verify] Fixed `docs/user/getting-started.md`'s claim that the `errors_test` issue is
+  titled `AdminErrorsTestError: admin_errors errors_test: this is a deliberate, harmless test
+  error.` — verified against `capture.py::_title` (title = first line of `str(exc_value)` only,
+  no exception-type prefix) and a live run of `errors_test`, which prints `Captured issue #1:
+  admin_errors errors_test: this is a deliberate, harmless test error.` with no
+  `AdminErrorsTestError:` prefix; the exception type is a separate field/badge, not part of the
+  title string — why: the doc quoted an exact string in backticks that the product never produces,
+  which would send a first-time operator looking for text that isn't there; rule "where a doc
+  contradicts the code, the code wins" — alternatives: none, this is a factual correction. All
+  other files in this step's scope (CLAUDE.md, README.md, CHANGELOG.md, docs/user/*, tox.ini,
+  demo/demo_app/{urls,views}.py, e2e/conftest.py, src/admin_errors/__init__.py) were checked
+  against the current code (settings table via `tests/test_docs.py`, retention/notification
+  numbers against `conf.DEFAULTS`, benchmark figures against `BENCH.md`, Makefile targets, ADR
+  list) and found already true — no further edits made.

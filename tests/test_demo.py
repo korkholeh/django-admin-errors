@@ -198,6 +198,40 @@ def test_storm_aggregates_into_one_issue():
     assert IssueDailyCount.objects.filter(issue=issue).count() == 1
 
 
+def test_reset_rate_limits_clears_the_sample_bucket():
+    # A second storm hitting the same fingerprint stores nothing once `EVENT_SAMPLE_PER_HOUR` is
+    # spent (the bucket is process-global, not reset between requests within a test); the reset
+    # endpoint (`/test/reset-rate-limits/`, added for the e2e harness — a reused `runserver`
+    # process otherwise leaks sampling state across separate pytest invocations, DECISIONS.md
+    # p10/T11) must make the next storm store a full sample again.
+    per_hour = demo_settings.ADMIN_ERRORS["EVENT_SAMPLE_PER_HOUR"]
+    client = _client()
+    client.get("/storm/?n=25")
+    issue = Issue.objects.get()
+    assert Event.objects.filter(issue=issue).count() == per_hour
+
+    client.get("/storm/?n=25")
+    assert Event.objects.filter(issue=issue).count() == per_hour
+
+    with override_settings(DEBUG=True):
+        response = client.post("/test/reset-rate-limits/")
+    assert response.status_code == 200
+
+    client.get("/storm/?n=25")
+    assert Event.objects.filter(issue=issue).count() == per_hour * 2
+
+
+def test_reset_rate_limits_rejects_get():
+    response = _client().get("/test/reset-rate-limits/")
+    assert response.status_code == 405
+
+
+def test_reset_rate_limits_404s_outside_debug():
+    with override_settings(DEBUG=False):
+        response = _client().post("/test/reset-rate-limits/")
+    assert response.status_code == 404
+
+
 def test_unique_storm_is_bounded_by_new_issue_admission():
     # NEW_ISSUES_PER_MINUTE is not overridden by the demo profile, so it stays on the shipped
     # default (50): 80 unique messages admitted well within the bucket's 60s refill window must

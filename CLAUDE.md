@@ -48,8 +48,12 @@ tests/              pytest; tests/settings.py is the minimal host
 e2e/                pytest-playwright specs against demo/
 benchmarks/         bench_capture.py, not a test
 demo/               full Django project: manual QA, screenshots, PG target; never in the wheel
-docs/spec.md  docs/dev/adr/  docs/img/
+docs/spec.md  docs/dev/adr/  docs/img/  docs/user/ (operator-facing docs, task-shaped)
 ```
+
+`tox -e package` ends by running `tests/package_smoke.py` with the clean venv's own interpreter,
+proving templates, static files and the `uk` catalogue are actually present and render inside the
+installed wheel, not just that it imports.
 
 ## Conventions
 

@@ -1,0 +1,125 @@
+feature: manual-qa
+surfaces: [demo]
+entry: "http://127.0.0.1:8000/admin/admin_errors/issue/"
+
+under_test:
+  - src/admin_errors/capture.py
+  - src/admin_errors/fingerprint.py
+  - src/admin_errors/writer.py
+  - src/admin_errors/retention.py
+  - src/admin_errors/notifications.py
+  - src/admin_errors/static/admin_errors/admin_errors.css
+
+oracle: >
+  Encodes docs/spec.md §13's manual QA script (also spelled out in the README's "Try it" section)
+  as a durable, re-runnable spec instead of a one-night human claim, per spec §18's definition of
+  done. Each case matches one clause of that script: message-normalization grouping, storm sampling
+  and speed, the regressed badge, `errors_cleanup --dry-run`'s report, and dark-mode readability of
+  the badge/sparkline colours. The regression *email* clause of spec §13 is not observable
+  end-to-end against the shipped demo (see the resolve-then-rehit-shows-regressed-badge case below)
+  and is instead covered at unit level by
+  `tests/test_notifications.py::test_regression_sends_one_email`.
+
+scope_notes: >
+  As in `notifications-i18n.plan.yaml` (p09-e2e / p09-e2e_fix1), `make e2e-up` is idempotent and
+  does not restart an already-answering demo server, so a retry of this suite against the same
+  long-lived server can find stale rows from a previous run. Every case that needs a fresh
+  fingerprint deletes any pre-existing issue for its own culprit query through the admin's own
+  bulk-delete action first, so "never hit before in this server run" is enforced, not assumed.
+  `test_three_boom_hits_make_one_issue_with_count_three` and
+  `test_resolve_then_rehit_shows_regressed_badge` both drive `/boom/`
+  (culprit `demo_app.views.boom`) but run in this order within one file and each clears its own
+  precondition, so they do not race each other's row. `test_errors_cleanup_dry_run_prints_a_report`
+  needs no browser: it shells out to `demo/manage.py errors_cleanup --dry-run` and
+  `demo/manage.py errors_stats` the same way an operator would, exactly as the README documents.
+
+cases:
+  - id: three-boom-hits-one-issue-count-three
+    priority: high
+    steps: >
+      ["delete any pre-existing issue for demo_app.views.boom through the admin's own bulk-delete
+      action", "open /boom/ three times", "search the issue list for ZeroDivisionError"]
+    expected: >
+      exactly one issue row for that culprit, with a Count column of 3 — spec §13's first script
+      clause, message-count aggregation (writer.py's per-fingerprint aggregation)
+
+  - id: boom-1-and-boom-2-group-into-one-issue
+    priority: high
+    steps: >
+      ["delete any pre-existing issue for demo_app.views.boom_n through the admin's own bulk-delete
+      action", "open /boom/1/", "open /boom/2/", "search the issue list for boom_n"]
+    expected: >
+      exactly one ValueError issue with a Count column of 2, despite the different `n` in the
+      message — fingerprint.py's message-normalization contract (ADR 0003). Searching 'bad value'
+      itself would find nothing: the issue title is built from the *normalized* message, which
+      strips the numeric argument the raw "bad value {n}" string carries, so the culprit
+      (`boom_n`) is what the search targets instead.
+
+  - id: storm-is-fast-and-stores-few-events
+    priority: high
+    steps: >
+      ["delete any pre-existing issue matching DemoStormError through the admin's own bulk-delete
+      action", "GET /storm/?n=5000, measuring wall-clock time client-side", "read the JSON
+      response's own elapsed_seconds", "open the resulting issue's detail page"]
+    expected: >
+      both the client-measured wall-clock time and the view's own reported `elapsed_seconds` are
+      under 1 second, and the detail page's occurrences table lists between 1 and
+      `EVENT_SAMPLE_PER_HOUR` (5, per demo/demo_project/settings.py) stored rows even though the
+      issue's own Count column has grown by a substantial fraction of 5000 — spec §9.4's storage
+      bound in practice
+
+  - id: resolve-then-rehit-shows-regressed-badge
+    priority: high
+    steps: >
+      ["reuse the /boom/ issue three-boom-hits-one-issue-count-three just (re)created earlier in
+      the same file/run, rather than deleting it again", "open its detail page as admin",
+      "click Resolve", "open /boom/ again", "reload the detail page"]
+    expected: >
+      the status badge reads Regressed (`.ae-badge--regressed`) after the second hit. The
+      'New issue:' notification for demo_app.views.boom is asserted by
+      three-boom-hits-one-issue-count-three instead of here: a *second* delete+recreate of the
+      same /boom/ fingerprint in this file would burn a second slice of its process-wide
+      EVENT_SAMPLE_PER_HOUR budget (shared with test_admin_ui.py, test_demo_surface.py and
+      test_notifications_i18n.py) for no assertion this case needs, and doing so once left the
+      recreated /boom/ issue with no stored last_event, breaking test_notifications_i18n.py's
+      Copy-as-text case downstream (p10/T11, DECISIONS.md). A dedicated `/keyerror/<key>/` key was
+      tried first and rejected: distinct keys for that route still normalize into one shared
+      fingerprint (its title/message comes from the django.request log record, not the key), so it
+      gave no real isolation. No email assertion here: reusing this same-run issue means the
+      throttle window opened by that same 'New issue:' notification is still open
+      (`NOTIFY_THROTTLE_SECONDS=3600` in the demo, and resolving does not reset `notified_at` by
+      design — p09-review_fix2/minor-rejected2), so a regression email would be suppressed by
+      design, not absent by bug. The email path is covered at unit level by
+      `tests/test_notifications.py::test_regression_sends_one_email`.
+
+  - id: errors-cleanup-dry-run-prints-a-report
+    priority: medium
+    steps: >
+      ["run `demo/manage.py errors_stats` and capture the issue/event/daily_count row counts", "run
+      `demo/manage.py errors_cleanup --dry-run`", "run `demo/manage.py errors_stats` again"]
+    expected: >
+      the dry-run command exits 0, prints '(dry run — nothing deleted)' plus one report line per
+      retention rule (event/daily-count/resolved/ignored/open/vacuum), and the row counts from
+      `errors_stats` are identical before and after — retention.py's `dry_run` contract
+
+  - id: dark-mode-is-readable
+    priority: medium
+    steps: >
+      ["open a browser context with color_scheme=dark", "log in as admin/admin", "open the issue
+      list", "read the computed color of a status badge and of the page background", "open an
+      issue detail page and read the computed color of its sparkline/bar-chart element"]
+    expected: >
+      the issue list and detail pages render without error under dark mode, and the badge's and
+      chart's foreground colours resolve to non-transparent values distinct from the page
+      background — the phase-8 contrast fix (admin_errors.css's admin CSS-variable usage) stays
+      fixed
+
+findings: []
+
+deferred_not_authored:
+  - id: non-superuser-permission-gating
+    reason: >
+      Already covered end-to-end by `e2e/test_admin_ui.py`'s permission-gating case (a real
+      cookie-authenticated `viewer` session) and `tests/test_admin.py`'s per-permission unit tests;
+      this plan does not re-author it, matching e2e-authoring.md's guidance against duplicating
+      `test_admin_ui.py` (risk #14, PLAN.md's own "out of scope" note for this phase).
