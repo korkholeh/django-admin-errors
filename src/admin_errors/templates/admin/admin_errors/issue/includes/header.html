@@ -15,7 +15,7 @@
     <dt>{% translate "Last seen" %}</dt>
     <dd title="{{ original.last_seen|date:'c' }}">{{ original.last_seen|timesince }} {% translate "ago" %}</dd>
   </dl>
-  {% if ae_can_change %}
+  {% if ae_can_change or ae_can_delete %}
   {% comment %}
   The change-form page already wraps this include in the admin's own <form id="issue_form">;
   nesting another <form> there is invalid HTML and browsers silently misparse it (the button ends
@@ -25,22 +25,22 @@
   <form> via `ae_standalone_actions` so the buttons still have somewhere to submit from.
   {% endcomment %}
   <div class="ae-header-actions">
-    {% if ae_standalone_actions %}<form method="post" class="ae-inline-form">{% csrf_token %}{% endif %}
-    <button type="submit" formmethod="post"
-            formaction="{% url 'admin:admin_errors_issue_status' original.pk 'resolve' %}"
-            class="button">{% translate "Resolve" %}</button>
-    <button type="submit" formmethod="post"
-            formaction="{% url 'admin:admin_errors_issue_status' original.pk 'ignore' %}"
-            class="button">{% translate "Ignore" %}</button>
-    <button type="submit" formmethod="post"
-            formaction="{% url 'admin:admin_errors_issue_status' original.pk 'reopen' %}"
-            class="button">{% translate "Reopen" %}</button>
-    {% if ae_standalone_actions %}</form>{% endif %}
-  </div>
-  {% endif %}
-  {% if ae_can_delete %}
-    <p class="ae-header-actions">
+    {% if ae_can_change %}
+      {% if ae_standalone_actions %}<form method="post" class="ae-inline-form">{% csrf_token %}{% endif %}
+      <button type="submit" formmethod="post"
+              formaction="{% url 'admin:admin_errors_issue_status' original.pk 'resolve' %}"
+              class="button">{% translate "Resolve" %}</button>
+      <button type="submit" formmethod="post"
+              formaction="{% url 'admin:admin_errors_issue_status' original.pk 'ignore' %}"
+              class="button">{% translate "Ignore" %}</button>
+      <button type="submit" formmethod="post"
+              formaction="{% url 'admin:admin_errors_issue_status' original.pk 'reopen' %}"
+              class="button">{% translate "Reopen" %}</button>
+      {% if ae_standalone_actions %}</form>{% endif %}
+    {% endif %}
+    {% if ae_can_delete %}
       <a href="{% url 'admin:admin_errors_issue_delete' original.pk %}" class="button ae-delete-link">{% translate "Delete" %}</a>
-    </p>
+    {% endif %}
+  </div>
   {% endif %}
 </div>

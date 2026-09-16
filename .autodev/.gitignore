@@ -9,3 +9,4 @@ console.log
 REPORT.xlsx
 REPORT.csv
 e2e-server.pid
+.~lock.*#
