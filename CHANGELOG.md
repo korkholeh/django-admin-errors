@@ -8,8 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-- Demo: `/storm/?tag=` fingerprints a burst on its own, so the e2e storm case samples afresh on a reused server.
-- Demo: `demo_seed --backfill-history` and a `BEFORE_SEND` example; README screenshots regenerated.
+Nothing yet.
 
 ## [0.1.0] — 2026-09-16
 
@@ -226,3 +225,24 @@ one marks a trap worth knowing about.
   `@sensitive_variables("token")` scrub path was unreachable from a browser.
 - `make e2e-up` joined its setup steps with `;` instead of failing fast, so a broken
   `migrate`/`demo_seed`/`playwright install` reported a misleading "server never became ready".
+- The issue detail page's badge row and status buttons sat 10px left of every line of text above
+  them, because the admin pads `p` and `dl` inside `.module` but leaves `div` alone — and Delete,
+  wrapped in a `p`, sat on a line of its own, indented differently from the three buttons it
+  belongs with. They are now one padded flex row. Delete had also been given `border-color` and
+  `color` that never applied: Django's own `a.button` selector outranks a bare class, so the link
+  kept the same solid blue fill as Resolve and was re-padded smaller than its neighbours.
+- The end-to-end storm case passed on a fresh demo server and failed on every run after it against
+  the same process. `EVENT_SAMPLE_PER_HOUR` is a per-fingerprint, process-local token bucket that
+  deleting the issue does not reset, so the second storm stored counters and no events — correct
+  behaviour (see *Bounded storage*), wrongly asserted against. `/storm/` takes an optional `?tag=`
+  that fingerprints a burst on its own, and the case passes a fresh one per run.
+- The README screenshots were captured from a minutes-old issue whose occurrence chart was a
+  single bar, with light and dark taken from two different moments, and the full-page list ran to
+  3500px. `demo_seed --backfill-history` now gives an existing issue a history without touching its
+  events, both themes are captured from one state, and the list is cropped to the viewport. The
+  demo also sets `BEFORE_SEND` to shorten absolute paths and pin the hostname, which keeps the
+  screenshots free of a developer's home directory and doubles as the worked example of that hook.
+- The test suite failed on Python 3.10 (`tests/test_docs.py` imported `tomllib`, stdlib only from
+  3.11; it now falls back to `tomli`) and on Django 6.1, where `run_checks()` opens a database
+  connection through `JSONField._check_supported` and an overridden `LOGGING` is fed straight to
+  `dictConfig`. The library itself behaved identically on every version throughout.
