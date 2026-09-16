@@ -1,0 +1,113 @@
+# Publishes to PyPI through Trusted Publishing: PyPI authenticates this workflow through GitHub's
+# OIDC token, so the repository holds no API token and there is nothing here to leak. Setting it up
+# once, at https://pypi.org/manage/account/publishing/, needs owner `korkholeh`, repository
+# `django-admin-errors`, workflow `release.yml` and environment `pypi` — all four must match this
+# file exactly or the upload is rejected.
+#
+# A release is a pushed tag: `git tag v0.1.0 && git push origin v0.1.0`. The tag must match the
+# version in `src/admin_errors/__init__.py`, which `verify` enforces before anything is uploaded —
+# a PyPI version number is spent permanently the moment it is accepted, and deleting the release
+# does not give it back, so the mismatch has to fail here rather than there.
+#
+# `workflow_dispatch` publishes to TestPyPI instead, for a rehearsal that costs nothing: the same
+# build, the same upload path, a version number that does not matter.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+
+      - name: Tag matches __version__
+        if: github.event_name == 'push'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(uv run python -c 'import admin_errors; print(admin_errors.__version__)')"
+          echo "tag=$tag package=$version"
+          test "$tag" = "$version" || {
+            echo "::error::tag v$tag does not match __version__ $version"
+            exit 1
+          }
+
+      # The full gate, not a subset of it: the same lint, matrix and package environments CI runs,
+      # so a tag cannot ship something that only ever passed on a branch.
+      - run: uv run tox -e lint,package
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: rm -rf dist
+      - run: uv run python -m build
+      - run: uv run twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    # Rehearsal only, and deliberately not a dependency of `pypi`: TestPyPI rejects a version it
+    # has already seen, and a rehearsal from last week must not be able to block a real release.
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/django-admin-errors
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/django-admin-errors
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "See [CHANGELOG.md](https://github.com/$GITHUB_REPOSITORY/blob/main/CHANGELOG.md)."
